@@ -67,15 +67,15 @@ defmodule EchecsEngine.Simulation do
 
     Logger.info("Starting training loop...")
 
-    checkpoint_path = "models/echecs_engine_latest.ckpt"
+    checkpoint_path = "models/echecs_engine_latest.axon"
 
-    initial_state =
+    initial_model_state =
       if File.exists?(checkpoint_path) do
         Logger.info(
           "Found existing checkpoint at #{checkpoint_path}. Loading weights to resume training..."
         )
 
-        :erlang.binary_to_term(File.read!(checkpoint_path))
+        Nx.deserialize(File.read!(checkpoint_path))
       else
         Logger.info("No checkpoint found. Training from scratch...")
         %{}
@@ -83,17 +83,23 @@ defmodule EchecsEngine.Simulation do
 
     trained_model_state =
       Axon.Loop.trainer(model, loss, optimizer)
-      |> Axon.Loop.handle_event(:epoch_completed, fn state ->
+      |> Axon.Loop.handle_event(:epoch_completed, fn loop_state ->
         File.mkdir_p!("models")
-        File.write!(checkpoint_path, :erlang.term_to_binary(state))
-        Logger.info("Checkpoint auto-saved to #{checkpoint_path} after epoch.")
-        {:continue, state}
+        
+        # Serialize purely the model_state safely through Nx.serialize
+        serialized = Nx.serialize(loop_state.step_state.model_state)
+        File.write!(checkpoint_path, serialized)
+        
+        Logger.info("Model weights auto-saved to #{checkpoint_path} after epoch.")
+        
+        {:continue, loop_state}
       end)
-      |> Axon.Loop.run(data, initial_state, epochs: 10, compiler: EXLA)
+      |> Axon.Loop.run(data, initial_model_state, epochs: 2, compiler: EXLA)
 
     Logger.info("Training simulation completed successfully.")
 
-    File.write!(checkpoint_path, :erlang.term_to_binary(trained_model_state))
+    serialized = Nx.serialize(trained_model_state)
+    File.write!(checkpoint_path, serialized)
     Logger.info("Final model checkpoint saved to #{checkpoint_path}")
   end
 end
