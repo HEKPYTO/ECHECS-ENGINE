@@ -23,3 +23,16 @@ erl_crash.dump
 echecs_engine-*.tar
 
 docs/
+
+# IDE / Editor
+/.elixir_ls/
+/.vscode/
+.DS_Store
+
+# Models & Checkpoints
+/models/
+*.ckpt
+*.axon
+
+# Environment variables
+.env
