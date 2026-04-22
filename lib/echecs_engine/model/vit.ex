@@ -44,7 +44,6 @@ defmodule EchecsEngine.Model.ViT do
       |> Axon.batch_norm()
       |> Axon.mish()
       |> Axon.flatten()
-      |> Axon.softmax()
 
     Axon.container(%{policy: policy_head, value: value_head})
   end
