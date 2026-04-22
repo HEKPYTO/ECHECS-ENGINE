@@ -6,7 +6,7 @@ defmodule EchecsEngine.Serving do
 
   @doc """
   Configures the child specification to deploy `Nx.Serving` within
-  a supervision tree. Instantiates the AlphaZero network and builds 
+  a supervision tree. Instantiates the legacy frameworks network and builds 
   the pre/post processing batch pipelines automatically.
   """
   def child_spec(opts) do

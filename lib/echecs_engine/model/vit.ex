@@ -90,11 +90,16 @@ defmodule EchecsEngine.Model.ViT do
 
     ln_x2 = Axon.layer_norm(x)
 
-    ffn_out =
+    gate =
       ln_x2
-      |> Axon.dense(embed_dim * 4)
+      |> Axon.dense(embed_dim * 4, name: "swiglu_gate")
       |> Axon.mish()
-      |> Axon.dense(embed_dim)
+
+    up = Axon.dense(ln_x2, embed_dim * 4, name: "swiglu_up")
+
+    ffn_out =
+      Axon.multiply(gate, up)
+      |> Axon.dense(embed_dim, name: "swiglu_down")
 
     Axon.add(x, ffn_out)
   end

@@ -12,7 +12,7 @@ defmodule EchecsEngine.Tensor do
   Returns a tensor of shape `{1, 119, 8, 8}` formatted as `:u8`, where
   the first 12 planes represent the isolated piece-bitboards and the
   remaining planes act as padded context layers to match standard
-  AlphaZero tensor dimension schemas.
+  legacy frameworks tensor dimension schemas.
   """
   def to_tensor(%Echecs.Game{board: board}) do
     board_tuple =

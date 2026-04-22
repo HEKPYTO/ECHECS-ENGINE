@@ -5,7 +5,6 @@ defmodule EchecsEngine.Search.AlphaBetaTest do
   test "evaluates and selects the best leaf accumulator" do
     key = Nx.Random.key(123)
 
-    # 10 candidate leaves
     {accumulators, key} = Nx.Random.uniform(key, shape: {10, 3072}, type: :f32)
 
     {w1, key} = Nx.Random.uniform(key, shape: {3072, 32}, type: :f32)
@@ -13,7 +12,6 @@ defmodule EchecsEngine.Search.AlphaBetaTest do
     {w2, key} = Nx.Random.uniform(key, shape: {32, 1}, type: :f32)
     {b2, _key} = Nx.Random.uniform(key, shape: {1}, type: :f32)
 
-    # Use EXLA
     {best_score, best_idx} =
       jit(&EchecsEngine.Search.AlphaBeta.evaluate_leaves/5, compiler: EXLA).(
         accumulators,

@@ -1,6 +1,6 @@
 defmodule EchecsEngine.Model do
   @moduledoc """
-  Provides the AlphaZero-style ResNet model built with `Axon`.
+  Provides the legacy frameworks-style ResNet model built with `Axon`.
   """
 
   @doc """

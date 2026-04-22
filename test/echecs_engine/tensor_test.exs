@@ -12,7 +12,6 @@ defmodule EchecsEngine.TensorTest do
       assert Nx.shape(tensor) == {1, 119, 8, 8}
       assert Nx.type(tensor) == {:u, 8}
 
-      # For the starting position, check white pawns
       white_pawns = tensor[0][0]
       row_6 = white_pawns[6] |> Nx.to_flat_list()
       assert row_6 == [1, 1, 1, 1, 1, 1, 1, 1]
@@ -24,7 +23,6 @@ defmodule EchecsEngine.TensorTest do
 
     test "handles board as struct" do
       game = Echecs.new_game()
-      # Force board to be a struct
       struct_board = Echecs.Board.to_struct(game.board)
       game = %{game | board: struct_board}
 

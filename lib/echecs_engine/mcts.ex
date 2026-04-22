@@ -1,6 +1,6 @@
 defmodule EchecsEngine.MCTS do
   @moduledoc """
-  Provides the Monte Carlo Tree Search algorithm for AlphaZero.
+  Provides the Monte Carlo Tree Search algorithm for legacy frameworks.
   """
 
   alias EchecsEngine.MCTS.Node

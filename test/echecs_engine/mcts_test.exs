@@ -4,7 +4,6 @@ defmodule EchecsEngine.MCTSTest do
   alias EchecsEngine.MCTS
   alias EchecsEngine.MCTS.Node
 
-  # The serving might take a bit to spin up or evaluate
   @tag timeout: 120_000
   test "search/2 performs MCTS and returns an updated root node" do
     game = Echecs.new_game()
@@ -20,7 +19,6 @@ defmodule EchecsEngine.MCTSTest do
     children_visits =
       Enum.map(root_node.children, fn {_, child} -> child.visits end) |> Enum.sum()
 
-    # The first iteration expands the root, subsequent iterations expand children
     assert children_visits == iterations - 1
   end
 end
