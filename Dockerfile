@@ -3,7 +3,8 @@ FROM elixir:1.19-alpine AS builder
 
 # Set build environment
 ENV MIX_ENV=prod \
-    LANG=C.UTF-8
+    LANG=C.UTF-8 \
+    XLA_BUILD=true
 
 # Install OS dependencies required for compilation (especially EXLA)
 # Alpine uses apk instead of apt-get

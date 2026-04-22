@@ -1,6 +1,6 @@
-defmodule EchecsEngine.NNUE do
+defmodule EchecsEngine.SparseEvaluator do
   @moduledoc """
-  Implements the Fast Efficiently Updatable Neural Network (NNUE).
+  Implements the Fast Efficiently Updatable Neural Network (SparseEvaluator).
 
   Updated to reflect the latest state-of-the-art architecture:
   - Eliminates classical evaluation completely.

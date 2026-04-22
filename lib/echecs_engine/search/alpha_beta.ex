@@ -7,14 +7,14 @@ defmodule EchecsEngine.Search.AlphaBeta do
   import Nx.Defn
 
   @doc """
-  Given a batch of leaf accumulators, evaluates them through the NNUE network
+  Given a batch of leaf accumulators, evaluates them through the SparseEvaluator network
   and returns the maximum evaluated score and its corresponding index.
 
   This compiled function acts as the optimized tactical evaluator at the
   frontier of the Elixir Alpha-Beta search tree.
   """
   defn evaluate_leaves(accumulators, w1, b1, w2, b2) do
-    scores = EchecsEngine.NNUE.evaluate(accumulators, w1, b1, w2, b2)
+    scores = EchecsEngine.SparseEvaluator.evaluate(accumulators, w1, b1, w2, b2)
 
     scores = Nx.squeeze(scores, axes: [-1])
 

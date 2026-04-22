@@ -6,6 +6,8 @@ services:
     image: echecs_engine:latest
     environment:
       - MIX_ENV=prod
+    volumes:
+      - ./models:/app/models
     deploy:
       resources:
         reservations:

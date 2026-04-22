@@ -62,16 +62,30 @@ defmodule EchecsEngine.Simulation do
 
     Logger.info("Starting training loop...")
 
+    checkpoint_path = "models/echecs_engine_v1.ckpt"
+
+    initial_state =
+      if File.exists?(checkpoint_path) do
+        Logger.info(
+          "Found existing checkpoint at #{checkpoint_path}. Loading weights to resume training..."
+        )
+
+        :erlang.binary_to_term(File.read!(checkpoint_path))
+      else
+        Logger.info("No checkpoint found. Training from scratch...")
+        %{}
+      end
+
     trained_model_state =
       Axon.Loop.trainer(model, loss, optimizer)
-      |> Axon.Loop.run(data, %{}, epochs: 10, compiler: EXLA)
+      |> Axon.Loop.run(data, initial_state, epochs: 10, compiler: EXLA)
 
     Logger.info("Training simulation completed successfully.")
 
     File.mkdir_p!("models")
     serialized = :erlang.term_to_binary(trained_model_state)
-    File.write!("models/echecs_engine_v1.ckpt", serialized)
+    File.write!(checkpoint_path, serialized)
 
-    Logger.info("Model checkpoint saved to models/echecs_engine_v1.ckpt")
+    Logger.info("Model checkpoint saved to #{checkpoint_path}")
   end
 end

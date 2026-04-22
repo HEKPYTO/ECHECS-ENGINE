@@ -3,7 +3,7 @@ defmodule EchecsEngine.Search.Orchestrator do
   Orchestrates the hybrid engine flow:
   1. Queries the GPU Vision Transformer (ViT) to get move policies.
   2. Uses policy to select candidate moves.
-  3. Passes candidates to the compiled CPU XLA Alpha-Beta NNUE for deep search.
+  3. Passes candidates to the compiled CPU XLA Alpha-Beta SparseEvaluator for deep search.
   """
 
   @doc """
