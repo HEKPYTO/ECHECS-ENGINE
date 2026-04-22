@@ -1,0 +1,10 @@
+/_build/
+/deps/
+/.git/
+/.gitignore
+/.elixir_ls/
+/.vscode/
+/.idea/
+/.env
+*.pem
+/cover/
