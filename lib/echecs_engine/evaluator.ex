@@ -1,19 +1,19 @@
 defmodule EchecsEngine.SparseEvaluator do
   @moduledoc """
-  Implements the Fast Efficiently Updatable Neural Network (SparseEvaluator).
+  Implements an updatable neural network architecture.
 
-  Updated to reflect the latest state-of-the-art architecture:
-  - Eliminates classical evaluation completely.
-  - Utilizes a massively widened Accumulator (e.g., 3072 dimensions, simulated here).
-  - Employs SCReLU (Squared Clipped ReLU) for extreme non-linear feature extraction
-    without adding depth, allowing the CPU to evaluate rapidly.
+  This module defines the evaluation structure:
+  - Eliminates classical evaluation.
+  - Utilizes an expanded accumulator (3072 dimensions).
+  - Employs SCReLU (Squared Clipped ReLU) for feature extraction
+    without increasing network depth, allowing for efficient CPU evaluation.
   """
 
   import Nx.Defn
 
   @doc """
   Evaluates the accumulator vector into a scalar board score using 
-  state-of-the-art style SCReLU activations.
+  SCReLU activations.
 
   ## Parameters
   - `acc`: The accumulator tensor of shape `{3072}` (or batch mapped).
