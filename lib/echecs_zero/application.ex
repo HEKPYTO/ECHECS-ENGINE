@@ -8,8 +8,8 @@ defmodule EchecsZero.Application do
   @impl true
   def start(_type, _args) do
     children = [
-      # Starts a worker by calling: EchecsZero.Worker.start_link(arg)
-      # {EchecsZero.Worker, arg}
+      # Starts the Nx.Serving process for batched model inference
+      EchecsZero.Serving
     ]
 
     # See https://hexdocs.pm/elixir/Supervisor.html
