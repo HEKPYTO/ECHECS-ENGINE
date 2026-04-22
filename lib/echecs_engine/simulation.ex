@@ -1,28 +1,41 @@
 defmodule EchecsEngine.Simulation do
+  @moduledoc """
+  Provides the training simulation loop for the ECHECS-ENGINE.
+
+  This module sets up the neural network, loss functions, optimizer,
+  and dummy self-play data generators to validate the `Axon` and `EXLA`
+  compilation and training pipeline natively.
+  """
+
   require Logger
 
+  @doc """
+  Runs the training simulation.
+
+  Ensures necessary applications are started, configures `EXLA`, compiles the
+  ResNet model, and trains on uniform random batches representing valid chess states.
+  Saves the compiled state to a checkpoint upon successful execution.
+  """
   def run() do
-    # Set EXLA as the default backend and compiler for the simulation
+    Application.ensure_all_started(:exla)
+    Application.ensure_all_started(:nx)
+    Application.ensure_all_started(:axon)
+
     Nx.global_default_backend(EXLA.Backend)
     Nx.Defn.global_default_options(compiler: EXLA)
 
     Logger.info("Setting up ECHECS-ENGINE Training Simulation on GPU...")
 
-    # 1. Get the Model
     model = EchecsEngine.Model.build()
 
-    # 2. Setup Loss Functions
-    loss = fn
-      %{policy: pred_p, value: pred_v}, %{policy: target_p, value: target_v} ->
-        p_loss = Axon.Losses.categorical_cross_entropy(target_p, pred_p, reduction: :mean)
-        v_loss = Axon.Losses.mean_squared_error(target_v, pred_v, reduction: :mean)
-        Nx.add(p_loss, v_loss)
+    loss = fn %{policy: pred_p, value: pred_v}, %{policy: target_p, value: target_v} ->
+      p_loss = Axon.Losses.categorical_cross_entropy(target_p, pred_p, reduction: :mean)
+      v_loss = Axon.Losses.mean_squared_error(target_v, pred_v, reduction: :mean)
+      Nx.add(p_loss, v_loss)
     end
 
-    # 3. Setup Optimizer
     optimizer = :adam
 
-    # 4. Generate Dummy Data
     batch_size = 64
     num_batches = 50
 
@@ -47,13 +60,18 @@ defmodule EchecsEngine.Simulation do
       end)
       |> Enum.take(num_batches)
 
-    # 5. Training Loop
     Logger.info("Starting training loop...")
 
-    _trained_model_state =
+    trained_model_state =
       Axon.Loop.trainer(model, loss, optimizer)
-      |> Axon.Loop.run(data, %{}, epochs: 3, compiler: EXLA)
+      |> Axon.Loop.run(data, %{}, epochs: 10, compiler: EXLA)
 
     Logger.info("Training simulation completed successfully.")
+
+    File.mkdir_p!("models")
+    serialized = :erlang.term_to_binary(trained_model_state)
+    File.write!("models/echecs_engine_v1.ckpt", serialized)
+
+    Logger.info("Model checkpoint saved to models/echecs_engine_v1.ckpt")
   end
 end

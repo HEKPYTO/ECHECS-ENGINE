@@ -1,15 +1,15 @@
 # Builder stage
-FROM elixir:1.19-slim AS builder
+FROM elixir:1.19-alpine AS builder
 
 # Set build environment
 ENV MIX_ENV=prod \
     LANG=C.UTF-8
 
 # Install OS dependencies required for compilation (especially EXLA)
-RUN apt-get update -y && \
-    apt-get install -y build-essential git curl && \
-    apt-get clean && \
-    rm -rf /var/lib/apt/lists/*
+# Alpine uses apk instead of apt-get
+RUN apk update && \
+    apk add --no-cache build-base git curl python3 bash && \
+    rm -rf /var/cache/apk/*
 
 WORKDIR /app
 
@@ -35,17 +35,17 @@ RUN mix compile
 RUN mix release
 
 # Runner stage
-FROM debian:trixie-slim AS runner
+FROM alpine:3.20 AS runner
 
 # Set runtime environment
 ENV MIX_ENV=prod \
     LANG=C.UTF-8
 
-# Install standard runtime dependencies (libstdc++ needed by EXLA usually)
-RUN apt-get update -y && \
-    apt-get install -y libstdc++6 openssl ca-certificates && \
-    apt-get clean && \
-    rm -rf /var/lib/apt/lists/*
+# Install standard runtime dependencies
+# Alpine needs libstdc++ for XLA/C++ native extensions, and ncurses-libs/openssl for Erlang runtime
+RUN apk update && \
+    apk add --no-cache libstdc++ openssl ncurses-libs bash libgcc && \
+    rm -rf /var/cache/apk/*
 
 WORKDIR /app
 

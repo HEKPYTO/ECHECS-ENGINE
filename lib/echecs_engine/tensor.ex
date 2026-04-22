@@ -1,13 +1,18 @@
 defmodule EchecsEngine.Tensor do
   @moduledoc """
-  Adapter for converting Echecs.Game structs to Nx.Tensors.
+  Provides conversion adapters bridging `Echecs.Game` structures
+  and `Nx.Tensor` formats for neural network ingestion.
   """
 
   import Bitwise
 
   @doc """
-  Converts an Echecs.Game to an Nx.Tensor.
-  Returns a tensor of shape {1, 119, 8, 8}.
+  Converts an `Echecs.Game` state to a uniform `Nx.Tensor`.
+
+  Returns a tensor of shape `{1, 119, 8, 8}` formatted as `:u8`, where
+  the first 12 planes represent the isolated piece-bitboards and the
+  remaining planes act as padded context layers to match standard
+  AlphaZero tensor dimension schemas.
   """
   def to_tensor(%Echecs.Game{board: board}) do
     board_tuple =
@@ -17,18 +22,15 @@ defmodule EchecsEngine.Tensor do
         Echecs.Board.from_struct(board)
       end
 
-    # Extract the 12 piece bitboards
     bitboards =
       Tuple.to_list(board_tuple)
       |> Enum.take(12)
 
-    # Convert bitboards to binary representations of 64 bytes each
     layers_bin =
       bitboards
       |> Enum.map(&bitboard_to_binary/1)
       |> Enum.join()
 
-    # Pad with zeros up to 119 layers
     padding = :binary.copy(<<0>>, (119 - 12) * 64)
     full_bin = layers_bin <> padding
 
@@ -36,6 +38,7 @@ defmodule EchecsEngine.Tensor do
     |> Nx.reshape({1, 119, 8, 8})
   end
 
+  @doc false
   defp bitboard_to_binary(val) do
     for i <- 0..63, into: <<>>, do: <<val >>> i &&& 1::8>>
   end

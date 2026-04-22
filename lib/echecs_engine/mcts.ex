@@ -1,11 +1,18 @@
 defmodule EchecsEngine.MCTS do
+  @moduledoc """
+  Provides the Monte Carlo Tree Search algorithm for AlphaZero.
+  """
+
   alias EchecsEngine.MCTS.Node
 
   @c_puct 1.0
 
   @doc """
   Runs Monte Carlo Tree Search for the given number of iterations.
-  Returns the updated root node.
+
+  Traverses the tree using PUCT, expands leaf nodes using the neural
+  network evaluated via `Nx.Serving`, and backpropagates the scalar
+  value to update tree statistics. Returns the updated root node.
   """
   def search(game, iterations) do
     root = %Node{game: game}
@@ -16,6 +23,7 @@ defmodule EchecsEngine.MCTS do
     end)
   end
 
+  @doc false
   defp simulate(%Node{children: children} = node) when children == %{} do
     {node, value} = expand_and_evaluate(node)
     {update_node(node, value), value}
@@ -28,16 +36,17 @@ defmodule EchecsEngine.MCTS do
     updated_children = Map.put(children, best_move, updated_child)
     updated_node = %{node | children: updated_children}
 
-    # Backpropagate -value because turn switches
     {update_node(updated_node, -value), -value}
   end
 
+  @doc false
   defp select_child(%Node{children: children, visits: parent_visits}) do
     Enum.max_by(children, fn {_move, child} ->
       puct_score(child, parent_visits)
     end)
   end
 
+  @doc false
   defp puct_score(
          %Node{visits: visits, total_value: total_value, prior_prob: prior},
          parent_visits
@@ -47,18 +56,16 @@ defmodule EchecsEngine.MCTS do
     q_value + u_value
   end
 
+  @doc false
   defp expand_and_evaluate(%Node{game: game} = node) do
     legal_moves = Echecs.legal_moves(game)
 
     if legal_moves == [] do
-      # Determine terminal value based on status
-      # Simplistic logic: checkmate is -1 for the current player
       status = Echecs.status(game)
 
       value =
         case status do
           :checkmate -> -1.0
-          # draw, stalemate, etc.
           _ -> 0.0
         end
 
@@ -85,6 +92,7 @@ defmodule EchecsEngine.MCTS do
     end
   end
 
+  @doc false
   defp update_node(%Node{visits: visits, total_value: total} = node, value) do
     %{node | visits: visits + 1, total_value: total + value}
   end
