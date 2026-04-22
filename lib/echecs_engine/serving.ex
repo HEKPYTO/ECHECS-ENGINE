@@ -27,7 +27,7 @@ defmodule EchecsEngine.Serving do
   @doc false
   defp build_serving(batch_size) do
     Nx.Serving.new(fn _opts ->
-      model = EchecsEngine.Model.build()
+      model = EchecsEngine.Model.ViT.build()
       {init_fn, predict_fn} = Axon.build(model, compiler: EXLA)
 
       template = Nx.template({batch_size, 119, 8, 8}, :f32)
