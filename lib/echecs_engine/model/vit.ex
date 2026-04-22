@@ -40,7 +40,6 @@ defmodule EchecsEngine.Model.ViT do
     policy_head =
       x
       |> Axon.reshape({:batch, 8, 8, embed_dim})
-      |> Axon.transpose([0, 3, 1, 2])
       |> Axon.conv(73, kernel_size: {1, 1}, padding: :same)
       |> Axon.batch_norm()
       |> Axon.mish()

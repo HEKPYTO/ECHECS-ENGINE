@@ -26,7 +26,7 @@ defmodule EchecsEngine.Simulation do
 
     Logger.info("Setting up ECHECS-ENGINE Training Simulation on GPU...")
 
-    model = EchecsEngine.Model.build()
+    model = EchecsEngine.Model.ViT.build()
 
     loss = fn %{policy: pred_p, value: pred_v}, %{policy: target_p, value: target_v} ->
       p_loss = Axon.Losses.categorical_cross_entropy(target_p, pred_p, reduction: :mean)
@@ -66,10 +66,7 @@ defmodule EchecsEngine.Simulation do
 
     initial_state =
       if File.exists?(checkpoint_path) do
-        Logger.info(
-          "Found existing checkpoint at #{checkpoint_path}. Loading weights to resume training..."
-        )
-
+        Logger.info("Found existing checkpoint at #{checkpoint_path}. Loading weights to resume training...")
         :erlang.binary_to_term(File.read!(checkpoint_path))
       else
         Logger.info("No checkpoint found. Training from scratch...")
