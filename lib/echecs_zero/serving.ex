@@ -23,25 +23,23 @@ defmodule EchecsZero.Serving do
   end
 
   defp build_serving(batch_size) do
-    Nx.Serving.new(
-      fn _opts ->
-        model = EchecsZero.Model.build()
-        {init_fn, predict_fn} = Axon.build(model, compiler: EXLA)
+    Nx.Serving.new(fn _opts ->
+      model = EchecsZero.Model.build()
+      {init_fn, predict_fn} = Axon.build(model, compiler: EXLA)
 
-        # Template for a single batch
-        template = Nx.template({batch_size, 119, 8, 8}, :f32)
-        params = init_fn.(template, Axon.ModelState.empty())
+      # Template for a single batch
+      template = Nx.template({batch_size, 119, 8, 8}, :f32)
+      params = init_fn.(template, Axon.ModelState.empty())
 
-        # Compile the prediction function upfront
-        predict_fn = Nx.Defn.compile(predict_fn, [params, template], compiler: EXLA)
+      # Compile the prediction function upfront
+      predict_fn = Nx.Defn.compile(predict_fn, [params, template], compiler: EXLA)
 
-        fn inputs ->
-          # Pad the inputs to the expected batch_size
-          inputs = Nx.Batch.pad(inputs, batch_size - inputs.size)
-          predict_fn.(params, inputs)
-        end
+      fn inputs ->
+        # Pad the inputs to the expected batch_size
+        inputs = Nx.Batch.pad(inputs, batch_size - inputs.size)
+        predict_fn.(params, inputs)
       end
-    )
+    end)
     |> Nx.Serving.client_preprocessing(fn input ->
       # Convert single tensor input to a batch of size 1
       {Nx.Batch.stack([input]), :client_info}
