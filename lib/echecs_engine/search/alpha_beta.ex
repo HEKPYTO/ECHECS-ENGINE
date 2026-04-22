@@ -14,7 +14,7 @@ defmodule EchecsEngine.Search.AlphaBeta do
   frontier of the Elixir Alpha-Beta search tree.
   """
   defn evaluate_leaves(accumulators, w1, b1, w2, b2) do
-    # accumulators shape: {num_leaves, 256}
+    # accumulators shape: {num_leaves, 3072}
     # The NNUE evaluate function inherently broadcasts over the batch dimension!
     scores = EchecsEngine.NNUE.evaluate(accumulators, w1, b1, w2, b2)
 

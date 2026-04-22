@@ -6,9 +6,9 @@ defmodule EchecsEngine.Search.AlphaBetaTest do
     key = Nx.Random.key(123)
 
     # 10 candidate leaves
-    {accumulators, key} = Nx.Random.uniform(key, shape: {10, 256}, type: :f32)
+    {accumulators, key} = Nx.Random.uniform(key, shape: {10, 3072}, type: :f32)
 
-    {w1, key} = Nx.Random.uniform(key, shape: {256, 32}, type: :f32)
+    {w1, key} = Nx.Random.uniform(key, shape: {3072, 32}, type: :f32)
     {b1, key} = Nx.Random.uniform(key, shape: {32}, type: :f32)
     {w2, key} = Nx.Random.uniform(key, shape: {32, 1}, type: :f32)
     {b2, _key} = Nx.Random.uniform(key, shape: {1}, type: :f32)

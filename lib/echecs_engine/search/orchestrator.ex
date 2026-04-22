@@ -32,7 +32,7 @@ defmodule EchecsEngine.Search.Orchestrator do
       # simulating the Alpha-Beta NNUE search phase.
 
       # Dummy weights for the compiled NNUE (these would be loaded from checkpoint)
-      w1 = Nx.broadcast(0.1, {256, 32})
+      w1 = Nx.broadcast(0.1, {3072, 32})
       b1 = Nx.broadcast(0.0, {32})
       w2 = Nx.broadcast(0.1, {32, 1})
       b2 = Nx.broadcast(0.0, {1})
@@ -42,7 +42,7 @@ defmodule EchecsEngine.Search.Orchestrator do
       # representing the deeply searched leaf nodes of each move.
       num_moves = length(legal_moves)
       key = Nx.Random.key(System.system_time())
-      {accumulators, _key} = Nx.Random.uniform(key, shape: {num_moves, 256}, type: :f32)
+      {accumulators, _key} = Nx.Random.uniform(key, shape: {num_moves, 3072}, type: :f32)
 
       # 3. Fast Alpha-Beta NNUE evaluation (CPU/JIT)
       {best_score, best_idx_tensor} =
