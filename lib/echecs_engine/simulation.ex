@@ -66,7 +66,10 @@ defmodule EchecsEngine.Simulation do
 
     initial_state =
       if File.exists?(checkpoint_path) do
-        Logger.info("Found existing checkpoint at #{checkpoint_path}. Loading weights to resume training...")
+        Logger.info(
+          "Found existing checkpoint at #{checkpoint_path}. Loading weights to resume training..."
+        )
+
         :erlang.binary_to_term(File.read!(checkpoint_path))
       else
         Logger.info("No checkpoint found. Training from scratch...")

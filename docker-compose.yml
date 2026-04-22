@@ -1,5 +1,5 @@
 services:
-  engine:
+  engine-nvidia:
     build:
       context: .
       dockerfile: Dockerfile
@@ -15,4 +15,21 @@ services:
             - driver: nvidia
               count: 1
               capabilities: [gpu]
+    command: ["eval", "EchecsEngine.Simulation.run()"]
+
+  engine-amd:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: echecs_engine:latest
+    environment:
+      - MIX_ENV=prod
+    volumes:
+      - ./models:/app/models
+    devices:
+      - /dev/kfd:/dev/kfd
+      - /dev/dri:/dev/dri
+    group_add:
+      - video
+      - render
     command: ["eval", "EchecsEngine.Simulation.run()"]
