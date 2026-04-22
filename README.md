@@ -43,4 +43,19 @@ docker compose build engine-amd
 docker compose up -d engine-amd
 ```
 
-The system dynamically initializes the build and invokes the `EchecsEngine.Simulation` training loop. Weights and optimizer states are continuously persisted to the local `./models` directory for rapid checkpoint recovery.
+### Checkpointing & Model Exporting
+
+The system features robust continuous checkpointing to ensure long-term training runs never lose progress.
+
+**Continuous Recovery:**
+During the simulation run, the `Axon.Loop` automatically auto-saves the entire execution graph (including `model_state` and `optimizer_state` momentum) at the end of every epoch to `models/echecs_engine_latest.ckpt`. 
+If your Docker container is preempted or stopped, starting it again will automatically locate this file, re-hydrate the optimizer, and resume training seamlessly from the exact epoch it left off.
+
+**Exporting for Production Inference:**
+Training checkpoints are mathematically heavy because they contain historical gradient momentum. To export purely the network weights for fast, read-only inference inside the `Nx.Serving` cluster:
+
+```bash
+# This strips the optimizer bounds and extracts a production .axon model
+mix echecs.export
+```
+This generates `models/echecs_engine_production.axon` which can be securely loaded for rapid engine play.

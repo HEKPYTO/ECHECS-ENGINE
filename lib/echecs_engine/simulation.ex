@@ -67,7 +67,7 @@ defmodule EchecsEngine.Simulation do
 
     Logger.info("Starting training loop...")
 
-    checkpoint_path = "models/echecs_engine_v1.ckpt"
+    checkpoint_path = "models/echecs_engine_latest.ckpt"
 
     initial_state =
       if File.exists?(checkpoint_path) do
@@ -83,14 +83,17 @@ defmodule EchecsEngine.Simulation do
 
     trained_model_state =
       Axon.Loop.trainer(model, loss, optimizer)
+      |> Axon.Loop.handle_event(:epoch_completed, fn state ->
+        File.mkdir_p!("models")
+        File.write!(checkpoint_path, :erlang.term_to_binary(state))
+        Logger.info("Checkpoint auto-saved to #{checkpoint_path} after epoch.")
+        {:continue, state}
+      end)
       |> Axon.Loop.run(data, initial_state, epochs: 10, compiler: EXLA)
 
     Logger.info("Training simulation completed successfully.")
 
-    File.mkdir_p!("models")
-    serialized = :erlang.term_to_binary(trained_model_state)
-    File.write!(checkpoint_path, serialized)
-
-    Logger.info("Model checkpoint saved to #{checkpoint_path}")
+    File.write!(checkpoint_path, :erlang.term_to_binary(trained_model_state))
+    Logger.info("Final model checkpoint saved to #{checkpoint_path}")
   end
 end
