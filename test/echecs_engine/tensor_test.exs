@@ -1,8 +1,8 @@
-defmodule EchecsZero.TensorTest do
+defmodule EchecsEngine.TensorTest do
   use ExUnit.Case
-  doctest EchecsZero.Tensor
+  doctest EchecsEngine.Tensor
 
-  alias EchecsZero.Tensor
+  alias EchecsEngine.Tensor
 
   describe "to_tensor/1" do
     test "converts standard starting board to tensor of shape {1, 119, 8, 8}" do

@@ -1,4 +1,4 @@
-defmodule EchecsZero.Tensor do
+defmodule EchecsEngine.Tensor do
   @moduledoc """
   Adapter for converting Echecs.Game structs to Nx.Tensors.
   """

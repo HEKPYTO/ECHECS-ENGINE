@@ -1,7 +1,7 @@
-defmodule EchecsZero.ModelTest do
+defmodule EchecsEngine.ModelTest do
   use ExUnit.Case
 
-  alias EchecsZero.Model
+  alias EchecsEngine.Model
 
   test "builds an Axon ResNet model with policy and value heads" do
     model = Model.build()
@@ -12,7 +12,7 @@ defmodule EchecsZero.ModelTest do
     {init_fn, predict_fn} = Axon.build(model, compiler: EXLA)
 
     # Initialize parameters
-    params = init_fn.(input, %{})
+    params = init_fn.(input, Axon.ModelState.empty())
 
     # Predict
     output = predict_fn.(params, input)

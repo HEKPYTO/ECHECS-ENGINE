@@ -1,0 +1,16 @@
+services:
+  engine:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: echecs_engine:latest
+    environment:
+      - MIX_ENV=prod
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    command: ["eval", "EchecsEngine.Simulation.run()"]

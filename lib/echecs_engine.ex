@@ -1,6 +1,6 @@
-defmodule EchecsZero do
+defmodule EchecsEngine do
   @moduledoc """
-  Documentation for `EchecsZero`.
+  Documentation for `EchecsEngine`.
   """
 
   @doc """
@@ -8,7 +8,7 @@ defmodule EchecsZero do
 
   ## Examples
 
-      iex> EchecsZero.hello()
+      iex> EchecsEngine.hello()
       :world
 
   """

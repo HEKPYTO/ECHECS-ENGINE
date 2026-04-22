@@ -1,6 +1,6 @@
-defmodule EchecsZero.Serving do
+defmodule EchecsEngine.Serving do
   @moduledoc """
-  Serving process for EchecsZero model inference.
+  Serving process for EchecsEngine model inference.
   It encapsulates the Axon model and provides a batched inference API.
   """
 
@@ -24,7 +24,7 @@ defmodule EchecsZero.Serving do
 
   defp build_serving(batch_size) do
     Nx.Serving.new(fn _opts ->
-      model = EchecsZero.Model.build()
+      model = EchecsEngine.Model.build()
       {init_fn, predict_fn} = Axon.build(model, compiler: EXLA)
 
       # Template for a single batch

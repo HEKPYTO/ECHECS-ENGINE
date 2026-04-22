@@ -1,5 +1,5 @@
-defmodule EchecsZero.MCTS do
-  alias EchecsZero.MCTS.Node
+defmodule EchecsEngine.MCTS do
+  alias EchecsEngine.MCTS.Node
 
   @c_puct 1.0
 
@@ -65,11 +65,11 @@ defmodule EchecsZero.MCTS do
       {node, value}
     else
       tensor =
-        EchecsZero.Tensor.to_tensor(game)
+        EchecsEngine.Tensor.to_tensor(game)
         |> Nx.squeeze(axes: [0])
         |> Nx.as_type(:f32)
 
-      %{policy: _p, value: v} = Nx.Serving.batched_run(EchecsZero.Serving, tensor)
+      %{policy: _p, value: v} = Nx.Serving.batched_run(EchecsEngine.Serving, tensor)
 
       value = v |> Nx.squeeze() |> Nx.to_number()
 

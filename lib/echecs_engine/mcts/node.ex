@@ -1,4 +1,4 @@
-defmodule EchecsZero.MCTS.Node do
+defmodule EchecsEngine.MCTS.Node do
   @moduledoc """
   Represents a node in the Monte Carlo Tree Search.
   """

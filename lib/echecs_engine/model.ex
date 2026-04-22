@@ -1,4 +1,4 @@
-defmodule EchecsZero.Model do
+defmodule EchecsEngine.Model do
   @moduledoc """
   AlphaZero-style ResNet model built with Axon.
   """

@@ -1,8 +1,8 @@
-defmodule EchecsZero.MCTSTest do
+defmodule EchecsEngine.MCTSTest do
   use ExUnit.Case
 
-  alias EchecsZero.MCTS
-  alias EchecsZero.MCTS.Node
+  alias EchecsEngine.MCTS
+  alias EchecsEngine.MCTS.Node
 
   # The serving might take a bit to spin up or evaluate
   @tag timeout: 120_000

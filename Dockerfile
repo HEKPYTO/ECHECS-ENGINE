@@ -50,8 +50,8 @@ RUN apt-get update -y && \
 WORKDIR /app
 
 # Copy the release from the builder stage
-COPY --from=builder /app/_build/prod/rel/echecs_zero ./
+COPY --from=builder /app/_build/prod/rel/echecs_engine ./
 
 # Set the entrypoint to the compiled release binary
-ENTRYPOINT ["/app/bin/echecs_zero"]
+ENTRYPOINT ["/app/bin/echecs_engine"]
 CMD ["start"]

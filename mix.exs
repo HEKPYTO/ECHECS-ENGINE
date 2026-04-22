@@ -1,11 +1,12 @@
-defmodule EchecsZero.MixProject do
+defmodule EchecsEngine.MixProject do
   use Mix.Project
 
   def project do
     [
-      app: :echecs_zero,
+      app: :echecs_engine,
       version: "0.1.0",
       elixir: "~> 1.19",
+      elixirc_options: [warnings_as_errors: true],
       start_permanent: Mix.env() == :prod,
       deps: deps()
     ]
@@ -15,7 +16,7 @@ defmodule EchecsZero.MixProject do
   def application do
     [
       extra_applications: [:logger],
-      mod: {EchecsZero.Application, []}
+      mod: {EchecsEngine.Application, []}
     ]
   end
 
