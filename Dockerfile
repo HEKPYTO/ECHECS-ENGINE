@@ -1,4 +1,3 @@
-# Builder stage
 FROM elixir:1.19-slim AS builder
 
 ENV MIX_ENV=prod \

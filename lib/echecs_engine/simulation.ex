@@ -29,7 +29,12 @@ defmodule EchecsEngine.Simulation do
     model = EchecsEngine.Model.ViT.build()
 
     loss = fn %{policy: pred_p, value: pred_v}, %{policy: target_p, value: target_v} ->
-      p_loss = Axon.Losses.categorical_cross_entropy(target_p, pred_p, reduction: :mean, from_logits: true)
+      p_loss =
+        Axon.Losses.categorical_cross_entropy(target_p, pred_p,
+          reduction: :mean,
+          from_logits: true
+        )
+
       v_loss = Axon.Losses.mean_squared_error(target_v, pred_v, reduction: :mean)
       Nx.add(p_loss, v_loss)
     end

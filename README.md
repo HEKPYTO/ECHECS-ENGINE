@@ -6,11 +6,11 @@
 
 This engine utilizes a dual-network approach, bridging functional concurrency on the Erlang VM with compiled XLA numerical graphs.
 
-### 1. Spatial Self-Attention Policy Network (GPU)
+### 1. Spatial Self-Attention Policy Network (GPU/CPU)
 The policy network interprets the 8x8 chess board as a sequence of 64 discrete tokens.
 - Employs **Multi-Head Self-Attention** to process interactions across the entire board simultaneously.
 - Incorporates **SwiGLU (Swish-Gated Linear Units)** inside the feed-forward blocks.
-- The network runs batched via `Nx.Serving`, enabling optimized GPU utilization to generate move probability distributions.
+- The network runs batched via `Nx.Serving`, enabling optimized utilization to generate move probability distributions.
 
 ### 2. Sparse Vector Evaluator (CPU)
 To evaluate terminal leaf nodes efficiently during the search phase, the engine implements a **JIT-compiled Sparse Evaluator**.
@@ -23,11 +23,24 @@ The orchestrator coordinates the search phase. It evaluates the initial position
 
 ## Setup & Training
 
-The environment is containerized using Alpine Linux.
+The environment is securely containerized using an optimized, lightweight Debian Slim base to ensure seamless native compatibility with XLA and varying hardware accelerators.
 
+**Default CPU Training (No GPU Required):**
 ```bash
-docker compose build engine-amd
-docker compose up engine-amd
+docker compose build engine
+docker compose up -d engine
 ```
 
-The system initializes the build and invokes `EchecsEngine.Simulation` to begin the training loop. Checkpoints are automatically persisted to the local `/models` directory.
+**NVIDIA GPU Training:**
+```bash
+docker compose build engine-nvidia
+docker compose up -d engine-nvidia
+```
+
+**AMD GPU Training (ROCm):**
+```bash
+docker compose build engine-amd
+docker compose up -d engine-amd
+```
+
+The system dynamically initializes the build and invokes the `EchecsEngine.Simulation` training loop. Weights and optimizer states are continuously persisted to the local `./models` directory for rapid checkpoint recovery.

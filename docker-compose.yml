@@ -1,4 +1,16 @@
 services:
+  engine:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: echecs_engine:latest
+    environment:
+      - MIX_ENV=prod
+      - EXLA_TARGET=x86_64-linux-gnu-cpu
+    volumes:
+      - ./models:/app/models
+    command: ["eval", "EchecsEngine.Simulation.run()"]
+
   engine-nvidia:
     build:
       context: .
