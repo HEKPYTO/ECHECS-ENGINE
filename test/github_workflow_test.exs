@@ -12,9 +12,16 @@ defmodule EchecsEngine.GitHubWorkflowTest do
     assert workflow =~ "concurrency:"
     assert workflow =~ "strategy:"
     assert workflow =~ "matrix:"
-    assert workflow =~ "docker buildx build --platform linux/amd64 --cache-from type=gha,scope=engine"
-    assert workflow =~ "docker buildx build --platform linux/amd64 --cache-from type=gha,scope=engine-nvidia"
-    assert workflow =~ "docker buildx build --platform linux/amd64 --cache-from type=gha,scope=engine-match"
+
+    assert workflow =~
+             "docker buildx build --platform linux/amd64 --cache-from type=gha,scope=engine"
+
+    assert workflow =~
+             "docker buildx build --platform linux/amd64 --cache-from type=gha,scope=engine-nvidia"
+
+    assert workflow =~
+             "docker buildx build --platform linux/amd64 --cache-from type=gha,scope=engine-match"
+
     assert workflow =~ "--cache-to type=gha,mode=max,scope=engine"
     assert workflow =~ "--cache-to type=gha,mode=max,scope=engine-nvidia"
     assert workflow =~ "--cache-to type=gha,mode=max,scope=engine-match"
