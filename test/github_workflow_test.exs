@@ -9,9 +9,12 @@ defmodule EchecsEngine.GitHubWorkflowTest do
     assert workflow =~ "name: Docker Images"
     assert workflow =~ "pull_request:"
     assert workflow =~ "push:"
-    assert workflow =~ "docker compose build engine"
-    assert workflow =~ "docker compose build engine-nvidia"
-    assert workflow =~ "docker compose build engine-match"
+    assert workflow =~ "concurrency:"
+    assert workflow =~ "matrix:"
+    assert workflow =~ "- engine"
+    assert workflow =~ "- engine-nvidia"
+    assert workflow =~ "- engine-match"
+    assert workflow =~ "docker compose build ${{ matrix.service }}"
     assert workflow =~ "docker/setup-buildx-action"
   end
 end
