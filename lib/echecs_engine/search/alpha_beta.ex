@@ -49,7 +49,7 @@ defmodule EchecsEngine.Search.AlphaBeta do
           {:halt, {best || fallback_result(game), state}}
         else
           {result, state} =
-            root_search(game, depth, history_games, root_acc, state, opts)
+            root_search_with_window(game, depth, history_games, root_acc, best, state, opts)
 
           if is_function(reporter, 1) do
             reporter.(%{
@@ -101,14 +101,18 @@ defmodule EchecsEngine.Search.AlphaBeta do
   end
 
   defp root_search(game, depth, history_games, accumulator, state, opts) do
+    root_search(game, depth, history_games, accumulator, state, opts, @neg_inf, @pos_inf)
+  end
+
+  defp root_search(game, depth, history_games, accumulator, state, opts, alpha, beta) do
     legal_moves =
       game
       |> ordered_moves(history_games, opts)
       |> limit_root_candidates(opts)
 
-    Enum.reduce_while(legal_moves, {fallback_root_result(game), state, @neg_inf}, fn move,
-                                                                                     {best, state,
-                                                                                      alpha} ->
+    Enum.reduce_while(legal_moves, {fallback_root_result(game), state, alpha}, fn move,
+                                                                                  {best, state,
+                                                                                   alpha} ->
       if expired?(state) do
         {:halt, {best, state}}
       else
@@ -117,7 +121,18 @@ defmodule EchecsEngine.Search.AlphaBeta do
         next_acc = next_accumulator(accumulator, game, move, opts)
 
         {score, child_pv, state} =
-          negamax(next_game, depth - 1, -@pos_inf, -alpha, next_history, next_acc, state, opts, 1)
+          negamax(
+            next_game,
+            depth - 1,
+            -beta,
+            -alpha,
+            next_history,
+            next_acc,
+            state,
+            opts,
+            1,
+            true
+          )
 
         score = -score
         pv = [move | child_pv]
@@ -136,6 +151,45 @@ defmodule EchecsEngine.Search.AlphaBeta do
     end)
   end
 
+  defp root_search_with_window(game, depth, history_games, accumulator, best, state, opts) do
+    case aspiration_bounds(depth, best, opts) do
+      nil ->
+        root_search(game, depth, history_games, accumulator, state, opts)
+
+      {alpha, beta} ->
+        {result, state} =
+          root_search(game, depth, history_games, accumulator, state, opts, alpha, beta)
+
+        if result.score <= alpha or result.score >= beta do
+          root_search(game, depth, history_games, accumulator, state, opts)
+        else
+          {result, state}
+        end
+    end
+  end
+
+  defp aspiration_bounds(_depth, nil, _opts), do: nil
+
+  defp aspiration_bounds(depth, best, opts) do
+    if Keyword.get(opts, :aspiration_window, 0.25) == false do
+      nil
+    else
+      do_aspiration_bounds(depth, best, opts)
+    end
+  end
+
+  defp do_aspiration_bounds(depth, %{score: score}, opts) when depth > 1 do
+    case Keyword.get(opts, :aspiration_window, 0.25) do
+      window when is_number(window) and window > 0 ->
+        {score - window, score + window}
+
+      _other ->
+        nil
+    end
+  end
+
+  defp do_aspiration_bounds(_depth, _best, _opts), do: nil
+
   defp limit_root_candidates(moves, opts) do
     case Keyword.get(opts, :candidate_limit) do
       limit when is_integer(limit) and limit > 0 -> Enum.take(moves, limit)
@@ -143,7 +197,18 @@ defmodule EchecsEngine.Search.AlphaBeta do
     end
   end
 
-  defp negamax(game, depth, alpha, beta, history_games, accumulator, state, opts, ply) do
+  defp negamax(
+         game,
+         depth,
+         alpha,
+         beta,
+         history_games,
+         accumulator,
+         state,
+         opts,
+         ply,
+         allow_null?
+       ) do
     state = bump_nodes(state)
 
     cond do
@@ -158,6 +223,20 @@ defmodule EchecsEngine.Search.AlphaBeta do
 
       tt_entry = lookup_tt(state.tt, game, history_games, depth, alpha, beta, opts) ->
         {tt_entry.score, tt_entry.pv_moves, state}
+
+      null_cutoff =
+          maybe_null_move_cutoff(
+            game,
+            depth,
+            beta,
+            history_games,
+            accumulator,
+            state,
+            opts,
+            ply,
+            allow_null?
+          ) ->
+        null_cutoff
 
       true ->
         search_children(game, depth, alpha, beta, history_games, accumulator, state, opts, ply)
@@ -191,7 +270,8 @@ defmodule EchecsEngine.Search.AlphaBeta do
               next_acc,
               state,
               opts,
-              ply + 1
+              ply + 1,
+              true
             )
 
           score = -score
@@ -279,6 +359,62 @@ defmodule EchecsEngine.Search.AlphaBeta do
           end
         end)
         |> then(fn {best_score, best_pv, state, _alpha} -> {best_score, best_pv, state} end)
+    end
+  end
+
+  defp maybe_null_move_cutoff(
+         game,
+         depth,
+         beta,
+         history_games,
+         accumulator,
+         state,
+         opts,
+         ply,
+         allow_null?
+       ) do
+    cond do
+      not allow_null? ->
+        nil
+
+      Keyword.get(opts, :null_move_pruning, true) == false ->
+        nil
+
+      depth < 3 ->
+        nil
+
+      ply <= 0 ->
+        nil
+
+      Echecs.Game.in_check?(game) ->
+        nil
+
+      true ->
+        reduction = if depth >= 6, do: 3, else: 2
+        null_game = make_null_move(game)
+        next_history = [game | history_games] |> Enum.take(7)
+
+        {score, _pv, state} =
+          negamax(
+            null_game,
+            depth - 1 - reduction,
+            -beta,
+            -beta + 1,
+            next_history,
+            accumulator,
+            state,
+            opts,
+            ply + 1,
+            false
+          )
+
+        score = -score
+
+        if score >= beta do
+          {score, [], state}
+        else
+          nil
+        end
     end
   end
 
@@ -426,6 +562,24 @@ defmodule EchecsEngine.Search.AlphaBeta do
       ms when is_integer(ms) -> System.monotonic_time(:millisecond) + max(ms - 2, 1)
       _other -> nil
     end
+  end
+
+  defp make_null_move(%Echecs.Game{} = game) do
+    next_turn = Echecs.Piece.opponent(game.turn)
+    next_en_passant = nil
+    next_fullmove = if game.turn == :black, do: game.fullmove + 1, else: game.fullmove
+    next_halfmove = game.halfmove + 1
+    next_hash = Echecs.Zobrist.hash(game.board, next_turn, game.castling, next_en_passant)
+
+    %Echecs.Game{
+      game
+      | turn: next_turn,
+        en_passant: next_en_passant,
+        halfmove: next_halfmove,
+        fullmove: next_fullmove,
+        history: [next_hash | game.history],
+        zobrist_hash: next_hash
+    }
   end
 
   defp lookup_tt(tt, game, history_games, depth, alpha, beta, opts) do

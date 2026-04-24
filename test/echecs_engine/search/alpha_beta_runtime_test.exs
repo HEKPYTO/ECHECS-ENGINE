@@ -115,6 +115,63 @@ defmodule EchecsEngine.Search.AlphaBetaRuntimeTest do
     assert result.nodes >= 500
   end
 
+  test "aspiration windows preserve the selected best move" do
+    game = Echecs.new_game(@start_fen)
+    target_move = Enum.find(Echecs.legal_moves(game), &(&1.from == 52 and &1.to == 36))
+    other_move = Enum.find(Echecs.legal_moves(game), &(&1.from == 51 and &1.to == 35))
+
+    {:ok, target_game} =
+      Echecs.make_move(game, target_move.from, target_move.to, target_move.promotion)
+
+    {:ok, other_game} =
+      Echecs.make_move(game, other_move.from, other_move.to, other_move.promotion)
+
+    target_fen = Echecs.FEN.to_string(target_game)
+    other_fen = Echecs.FEN.to_string(other_game)
+
+    evaluator_fn = fn position ->
+      case Echecs.FEN.to_string(position) do
+        ^target_fen -> -0.4
+        ^other_fen -> 0.3
+        _other -> 0.0
+      end
+    end
+
+    baseline =
+      AlphaBeta.search(game, depth: 3, evaluator_fn: evaluator_fn, aspiration_window: false)
+
+    with_windows =
+      AlphaBeta.search(game, depth: 3, evaluator_fn: evaluator_fn, aspiration_window: 0.05)
+
+    assert baseline.best_move in Echecs.legal_moves(game)
+    assert with_windows.best_move == baseline.best_move
+    assert with_windows.depth == baseline.depth
+  end
+
+  test "null move pruning reduces nodes on a quiet search tree" do
+    game = Echecs.new_game(@start_fen)
+    evaluator_fn = fn _position -> 0.0 end
+
+    without_null =
+      AlphaBeta.search(game,
+        depth: 4,
+        evaluator_fn: evaluator_fn,
+        null_move_pruning: false,
+        aspiration_window: false
+      )
+
+    with_null =
+      AlphaBeta.search(game,
+        depth: 4,
+        evaluator_fn: evaluator_fn,
+        null_move_pruning: true,
+        aspiration_window: false
+      )
+
+    assert with_null.best_move in Echecs.legal_moves(game)
+    assert with_null.nodes < without_null.nodes
+  end
+
   test "sparse evaluator scores are interpreted from the side to move" do
     white = Echecs.new_game("8/8/8/8/8/8/4P3/4K2k w - - 0 1")
     black = Echecs.new_game("8/8/8/8/8/8/4P3/4K2k b - - 0 1")
