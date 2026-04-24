@@ -16,7 +16,8 @@ defmodule EchecsEngine.GitHubWorkflowTest do
     assert workflow =~ "docker buildx build --platform linux/amd64"
     assert workflow =~ "docker compose build engine-match"
     assert workflow =~ "Free disk space for NVIDIA build"
-    assert workflow =~ "docker/setup-buildx-action"
+    assert workflow =~ "actions/checkout@v6"
+    assert workflow =~ "docker/setup-buildx-action@v4"
     refute workflow =~ "docker compose build engine-nvidia"
   end
 end
