@@ -3,45 +3,55 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    image: echecs_engine:latest
+      args:
+        BUILDER_BASE: elixir:1.19-slim
+        XLA_TARGET: cpu
+        RUNTIME_BASE: debian:trixie-slim
+    image: echecs_engine:cpu
     environment:
       - MIX_ENV=prod
-      - EXLA_TARGET=x86_64-linux-gnu-cpu
+      - ENGINE_DATASET=/app/data/train.jsonl
+      - XLA_TARGET=cpu
     volumes:
-      - ./models:/app/models
+      - ./models:/app/models:z
+      - ./data:/app/data:z
     command: ["eval", "EchecsEngine.Simulation.run()"]
 
   engine-nvidia:
+    platform: linux/amd64
     build:
       context: .
       dockerfile: Dockerfile
-    image: echecs_engine:latest
+      args:
+        BUILDER_BASE: hexpm/elixir:1.19.5-erlang-28.3.1-ubuntu-noble-20260410
+        XLA_TARGET: cuda12
+        RUNTIME_BASE: nvidia/cuda:12.9.1-devel-ubuntu24.04
+    image: echecs_engine:nvidia
     environment:
       - MIX_ENV=prod
+      - ENGINE_DATASET=/app/data/train.jsonl
+      - XLA_TARGET=cuda12
+      - EXLA_PREALLOCATE=false
+      - EXLA_MEMORY_FRACTION=0.25
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=compute,utility
+      - LD_LIBRARY_PATH=/usr/lib/x86_64-linux-gnu/nvshmem/12:/usr/local/nvidia/lib:/usr/local/nvidia/lib64:/usr/local/cuda/lib64:/usr/local/cuda-12.9/targets/x86_64-linux/lib:/usr/local/cuda-12.8/targets/x86_64-linux/lib
     volumes:
-      - ./models:/app/models
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: 1
-              capabilities: [gpu]
+      - ./models:/app/models:z
+      - ./data:/app/data:z
+    gpus: all
     command: ["eval", "EchecsEngine.Simulation.run()"]
 
-  engine-amd:
+  engine-match:
     build:
       context: .
-      dockerfile: Dockerfile
-    image: echecs_engine:latest
+      dockerfile: Dockerfile.match
+    image: echecs_engine:match
     environment:
       - MIX_ENV=prod
+      - XLA_TARGET=cpu
     volumes:
-      - ./models:/app/models
-    devices:
-      - /dev/kfd:/dev/kfd
-      - /dev/dri:/dev/dri
-    group_add:
-      - video
-      - render
-    command: ["eval", "EchecsEngine.Simulation.run()"]
+      - ./models:/app/models:z
+      - ./data:/app/data:z
+    working_dir: /app
+    command: ["fastchess", "-h"]
