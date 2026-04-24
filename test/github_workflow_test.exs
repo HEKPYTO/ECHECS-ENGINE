@@ -14,6 +14,8 @@ defmodule EchecsEngine.GitHubWorkflowTest do
     assert workflow =~ "- engine"
     assert workflow =~ "- engine-nvidia"
     assert workflow =~ "- engine-match"
+    assert workflow =~ "Free disk space for NVIDIA build"
+    assert workflow =~ "matrix.service == 'engine-nvidia'"
     assert workflow =~ "docker compose build ${{ matrix.service }}"
     assert workflow =~ "docker/setup-buildx-action"
   end
