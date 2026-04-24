@@ -19,11 +19,11 @@ jobs:
       matrix:
         include:
           - service: engine
-            build_command: docker compose build engine
+            build_command: docker buildx build --platform linux/amd64 --cache-from type=gha,scope=engine --cache-to type=gha,mode=max,scope=engine -f Dockerfile .
           - service: engine-nvidia
-            build_command: docker buildx build --platform linux/amd64 --build-arg BUILDER_BASE=hexpm/elixir:1.19.5-erlang-28.3.1-ubuntu-noble-20260410 --build-arg XLA_TARGET=cuda12 --build-arg RUNTIME_BASE=nvidia/cuda:12.9.1-devel-ubuntu24.04 -f Dockerfile .
+            build_command: docker buildx build --platform linux/amd64 --cache-from type=gha,scope=engine-nvidia --cache-to type=gha,mode=max,scope=engine-nvidia --build-arg BUILDER_BASE=hexpm/elixir:1.19.5-erlang-28.3.1-ubuntu-noble-20260410 --build-arg XLA_TARGET=cuda12 --build-arg RUNTIME_BASE=nvidia/cuda:12.9.1-devel-ubuntu24.04 -f Dockerfile .
           - service: engine-match
-            build_command: docker compose build engine-match
+            build_command: docker buildx build --platform linux/amd64 --cache-from type=gha,scope=engine-match --cache-to type=gha,mode=max,scope=engine-match -f Dockerfile.match .
     name: build-${{ matrix.service }}
 
     steps:
