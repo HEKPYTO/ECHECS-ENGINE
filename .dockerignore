@@ -1,5 +1,5 @@
 /_build/
-/deps/
+/deps/*
 /.git/
 /.gitignore
 /.elixir_ls/
@@ -8,3 +8,4 @@
 /.env
 *.pem
 /cover/
+/models/
