@@ -21,10 +21,17 @@ defmodule EchecsEngine.MixProject do
 
   defp deps do
     [
-      {:echecs, github: "HEKPYTO/ECHECS"},
+      echecs_dep(),
       {:nx, "~> 0.7"},
       {:axon, "~> 0.6"},
       {:exla, "~> 0.7"}
     ]
+  end
+
+  defp echecs_dep do
+    case System.get_env("ECHECS_PATH") do
+      nil -> {:echecs, github: "HEKPYTO/ECHECS"}
+      path -> {:echecs, path: path}
+    end
   end
 end

@@ -6,6 +6,7 @@ defmodule EchecsEngine.Application do
   @impl true
   def start(_type, _args) do
     children = [
+      {Task.Supervisor, name: EchecsEngine.SearchTaskSupervisor},
       EchecsEngine.Serving
     ]
 

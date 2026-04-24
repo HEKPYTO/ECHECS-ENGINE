@@ -4,7 +4,7 @@ defmodule EchecsEngine.Model.ViTTest do
   alias EchecsEngine.Model.ViT
 
   describe "build/0" do
-    test "builds the ViT model that takes {1, 119, 8, 8} and returns policy and value" do
+    test "builds the ViT model that takes {1, 119, 8, 8} and returns policy, WDL, and moves-left heads" do
       model = ViT.build()
 
       {init_fn, predict_fn} = Axon.build(model, compiler: EXLA)
@@ -16,9 +16,10 @@ defmodule EchecsEngine.Model.ViTTest do
 
       result = predict_fn.(params, input)
 
-      assert %{policy: policy, value: value} = result
+      assert %{policy: policy, wdl: wdl, moves_left: moves_left} = result
       assert Nx.shape(policy) == {1, 4672}
-      assert Nx.shape(value) == {1, 1}
+      assert Nx.shape(wdl) == {1, 3}
+      assert Nx.shape(moves_left) == {1, 1}
     end
   end
 end
