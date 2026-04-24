@@ -12,7 +12,7 @@ defmodule Mix.Tasks.EngineTrainEvaluatorTest do
     File.write!(
       dataset_path,
       IO.iodata_to_binary([
-        :json.encode(%{
+        Jason.encode!(%{
           "fen" => @start_fen,
           "move" => "e2e4",
           "wdl" => [1.0, 0.0, 0.0]
@@ -42,7 +42,7 @@ defmodule Mix.Tasks.EngineTrainEvaluatorTest do
     File.write!(
       dataset_path,
       IO.iodata_to_binary([
-        :json.encode(%{
+        Jason.encode!(%{
           "fen" => @start_fen,
           "move" => "e2e4",
           "wdl" => [1.0, 0.0, 0.0]

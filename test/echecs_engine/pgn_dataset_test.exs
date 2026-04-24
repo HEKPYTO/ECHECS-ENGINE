@@ -56,7 +56,7 @@ defmodule EchecsEngine.PGNDatasetTest do
       Stream.transform([record1, record2], 0, fn record, index ->
         if index == 1 do
           assert {:ok, contents} = File.read(path)
-          assert contents == IO.iodata_to_binary([:json.encode(record1), "\n"])
+          assert contents == IO.iodata_to_binary([Jason.encode!(record1), "\n"])
         end
 
         {[record], index + 1}
@@ -68,9 +68,9 @@ defmodule EchecsEngine.PGNDatasetTest do
 
     assert File.read!(path) ==
              IO.iodata_to_binary([
-               :json.encode(record1),
+               Jason.encode!(record1),
                "\n",
-               :json.encode(record2),
+               Jason.encode!(record2),
                "\n"
              ])
   end

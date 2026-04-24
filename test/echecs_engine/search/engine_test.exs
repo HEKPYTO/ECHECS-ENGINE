@@ -179,8 +179,8 @@ defmodule EchecsEngine.Search.EngineTest do
   test "default evaluator misses are not cached for process lifetime" do
     cache_key = {Engine, :default_evaluator}
     old_cache = :persistent_term.get(cache_key, :__missing__)
-    path = EchecsEngine.Checkpoint.evaluator_path()
-    old_file = if File.exists?(path), do: File.read!(path), else: nil
+    old_path = Application.get_env(:echecs_engine, :evaluator_path, :__missing__)
+    path = temp_evaluator_path()
 
     on_exit(fn ->
       case old_cache do
@@ -188,12 +188,11 @@ defmodule EchecsEngine.Search.EngineTest do
         value -> :persistent_term.put(cache_key, value)
       end
 
-      case old_file do
-        nil -> File.rm(path)
-        binary -> File.write!(path, binary)
-      end
+      restore_evaluator_path(old_path)
+      File.rm(path)
     end)
 
+    Application.put_env(:echecs_engine, :evaluator_path, path)
     :persistent_term.put(cache_key, :error)
 
     game = Echecs.new_game("8/8/8/8/8/8/4P3/4K2k w - - 0 1")
@@ -216,8 +215,8 @@ defmodule EchecsEngine.Search.EngineTest do
   test "default evaluator cache reloads when the artifact signature changes" do
     cache_key = {Engine, :default_evaluator}
     old_cache = :persistent_term.get(cache_key, :__missing__)
-    path = EchecsEngine.Checkpoint.evaluator_path()
-    old_file = if File.exists?(path), do: File.read!(path), else: nil
+    old_path = Application.get_env(:echecs_engine, :evaluator_path, :__missing__)
+    path = temp_evaluator_path()
 
     on_exit(fn ->
       case old_cache do
@@ -225,12 +224,11 @@ defmodule EchecsEngine.Search.EngineTest do
         value -> :persistent_term.put(cache_key, value)
       end
 
-      case old_file do
-        nil -> File.rm(path)
-        binary -> File.write!(path, binary)
-      end
+      restore_evaluator_path(old_path)
+      File.rm(path)
     end)
 
+    Application.put_env(:echecs_engine, :evaluator_path, path)
     :persistent_term.put(cache_key, {:ok, :stale_weights, [{path, :enoent}]})
 
     game = Echecs.new_game("8/8/8/8/8/8/4P3/4K2k w - - 0 1")
@@ -308,4 +306,15 @@ defmodule EchecsEngine.Search.EngineTest do
       {feature_idx, Nx.broadcast(0.0, {3072}) |> Nx.put_slice([0], Nx.tensor([1.0]))}
     end)
   end
+
+  defp temp_evaluator_path do
+    System.tmp_dir!()
+    |> Path.join("echecs_engine_default_eval_#{System.unique_integer([:positive])}.axon")
+  end
+
+  defp restore_evaluator_path(:__missing__),
+    do: Application.delete_env(:echecs_engine, :evaluator_path)
+
+  defp restore_evaluator_path(path),
+    do: Application.put_env(:echecs_engine, :evaluator_path, path)
 end

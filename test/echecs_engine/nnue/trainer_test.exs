@@ -11,7 +11,7 @@ defmodule EchecsEngine.NNUE.TrainerTest do
     File.write!(
       path,
       IO.iodata_to_binary([
-        :json.encode(%{
+        Jason.encode!(%{
           "fen" => @start_fen,
           "move" => "e2e4",
           "wdl" => [1.0, 0.0, 0.0]
@@ -51,7 +51,7 @@ defmodule EchecsEngine.NNUE.TrainerTest do
     File.write!(
       path,
       IO.iodata_to_binary([
-        :json.encode(%{
+        Jason.encode!(%{
           "fen" => @start_fen,
           "move" => "e2e4",
           "wdl" => [1.0, 0.0, 0.0]
@@ -73,7 +73,7 @@ defmodule EchecsEngine.NNUE.TrainerTest do
     File.write!(
       path,
       IO.iodata_to_binary([
-        :json.encode(%{
+        Jason.encode!(%{
           "fen" => @start_fen,
           "move" => "e2e4",
           "wdl" => [1.0, 0.0, 0.0]
@@ -104,7 +104,7 @@ defmodule EchecsEngine.NNUE.TrainerTest do
     File.write!(
       path,
       IO.iodata_to_binary([
-        :json.encode(%{
+        Jason.encode!(%{
           "fen" => @start_fen,
           "move" => "e2e4",
           "wdl" => [1.0, 0.0, 0.0]
@@ -138,7 +138,7 @@ defmodule EchecsEngine.NNUE.TrainerTest do
     File.write!(
       path,
       records
-      |> Enum.map(&[:json.encode(&1), "\n"])
+      |> Enum.map(&[Jason.encode!(&1), "\n"])
       |> IO.iodata_to_binary()
     )
 
@@ -170,7 +170,7 @@ defmodule EchecsEngine.NNUE.TrainerTest do
     File.write!(
       path,
       records
-      |> Enum.map(&[:json.encode(&1), "\n"])
+      |> Enum.map(&[Jason.encode!(&1), "\n"])
       |> IO.iodata_to_binary()
     )
 
@@ -196,7 +196,7 @@ defmodule EchecsEngine.NNUE.TrainerTest do
     File.write!(
       path,
       records
-      |> Enum.map(&[:json.encode(&1), "\n"])
+      |> Enum.map(&[Jason.encode!(&1), "\n"])
       |> IO.iodata_to_binary()
     )
 
@@ -225,7 +225,7 @@ defmodule EchecsEngine.NNUE.TrainerTest do
     File.write!(
       dataset_path,
       IO.iodata_to_binary([
-        :json.encode(%{
+        Jason.encode!(%{
           "fen" => @start_fen,
           "move" => "e2e4",
           "eval_cp" => 120

@@ -22,6 +22,7 @@ defmodule EchecsEngine.MixProject do
   defp deps do
     [
       echecs_dep(),
+      {:jason, "~> 1.4"},
       {:nx, "~> 0.7"},
       {:axon, "~> 0.6"},
       {:exla, "~> 0.7"}

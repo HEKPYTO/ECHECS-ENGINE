@@ -53,7 +53,7 @@ defmodule EchecsEngine.PGNDataset do
 
     File.open!(path, [:write], fn file ->
       Enum.each(records, fn record ->
-        IO.binwrite(file, :json.encode(record))
+        IO.binwrite(file, Jason.encode!(record))
         IO.binwrite(file, "\n")
       end)
     end)

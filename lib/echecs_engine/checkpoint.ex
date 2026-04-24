@@ -18,13 +18,15 @@ defmodule EchecsEngine.Checkpoint do
   def production_path, do: @production_path
 
   @spec evaluator_path() :: String.t()
-  def evaluator_path, do: @evaluator_path
+  def evaluator_path do
+    Application.get_env(:echecs_engine, :evaluator_path, @evaluator_path)
+  end
 
   @spec default_model_paths() :: [String.t()]
   def default_model_paths, do: [@production_path, @latest_path]
 
   @spec default_evaluator_paths() :: [String.t()]
-  def default_evaluator_paths, do: [@evaluator_path]
+  def default_evaluator_paths, do: [evaluator_path()]
 
   @spec model_schema_version() :: pos_integer()
   def model_schema_version, do: @model_schema_version
