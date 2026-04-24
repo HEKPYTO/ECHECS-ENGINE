@@ -34,7 +34,7 @@ defmodule EchecsEngine.Benchmark do
       |> File.stream!()
       |> Stream.map(&String.trim/1)
       |> Stream.reject(&(&1 == ""))
-      |> Stream.map(&:json.decode/1)
+      |> Stream.map(&Jason.decode!/1)
       |> Enum.map(&run_position(&1, best_move, search_opts))
 
     total = length(positions)
@@ -60,7 +60,7 @@ defmodule EchecsEngine.Benchmark do
       |> File.stream!()
       |> Stream.map(&String.trim/1)
       |> Stream.reject(&(&1 == ""))
-      |> Stream.map(&:json.decode/1)
+      |> Stream.map(&Jason.decode!/1)
       |> Enum.map(fn record -> play_match(record, white, black, plies, search_opts) end)
 
     %{games: length(results), results: results}

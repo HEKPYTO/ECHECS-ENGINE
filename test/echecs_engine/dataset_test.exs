@@ -59,7 +59,7 @@ defmodule EchecsEngine.DatasetTest do
       Path.join(System.tmp_dir!(), "echecs_dataset_#{System.unique_integer([:positive])}.jsonl")
 
     json =
-      :json.encode(%{
+      Jason.encode!(%{
         "fen" => @start_fen,
         "move" => "e2e4",
         "result" => "1-0",
@@ -92,7 +92,7 @@ defmodule EchecsEngine.DatasetTest do
           )
 
         json =
-          :json.encode(%{
+          Jason.encode!(%{
             "fen" => @start_fen,
             "move" => if(idx == 1, do: "e2e4", else: "d2d4"),
             "result" => "1-0"
@@ -116,7 +116,7 @@ defmodule EchecsEngine.DatasetTest do
       )
 
     json =
-      :json.encode(%{
+      Jason.encode!(%{
         "fen" => @start_fen,
         "move" => "e2e4",
         "result" => "1-0"

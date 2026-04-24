@@ -76,7 +76,7 @@ defmodule EchecsEngine.NNUE.Trainer do
     |> File.stream!()
     |> Stream.map(&String.trim/1)
     |> Stream.reject(&(&1 == ""))
-    |> Stream.map(&:json.decode/1)
+    |> Stream.map(&Jason.decode!/1)
   end
 
   defp example_from_record!(%{"fen" => fen} = record) do

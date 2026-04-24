@@ -14,7 +14,7 @@ defmodule Mix.Tasks.EngineBenchTest do
 
     File.write!(
       path,
-      :json.encode(%{"id" => "start", "fen" => @start_fen, "best" => ["e2e4", "d2d4"]})
+      Jason.encode!(%{"id" => "start", "fen" => @start_fen, "best" => ["e2e4", "d2d4"]})
     )
 
     on_exit(fn -> File.rm(path) end)
@@ -45,7 +45,7 @@ defmodule Mix.Tasks.EngineBenchTest do
         "echecs_match_task_#{System.unique_integer([:positive])}.jsonl"
       )
 
-    File.write!(path, IO.iodata_to_binary(:json.encode(%{"fen" => @start_fen})) <> "\n")
+    File.write!(path, IO.iodata_to_binary(Jason.encode!(%{"fen" => @start_fen})) <> "\n")
     on_exit(fn -> File.rm(path) end)
 
     output =

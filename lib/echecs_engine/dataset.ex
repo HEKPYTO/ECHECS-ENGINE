@@ -49,7 +49,7 @@ defmodule EchecsEngine.Dataset do
 
   def example_from_record(_record), do: {:error, :missing_required_fields}
 
-  defp decode_record!(line), do: :json.decode(line)
+  defp decode_record!(line), do: Jason.decode!(line)
 
   defp normalize_paths(paths) when is_list(paths), do: paths
   defp normalize_paths(path) when is_binary(path), do: [path]

@@ -10,8 +10,8 @@ defmodule EchecsEngine.BenchmarkTest do
       Path.join(System.tmp_dir!(), "echecs_benchmark_#{System.unique_integer([:positive])}.jsonl")
 
     records = [
-      :json.encode(%{"id" => "start", "fen" => @start_fen, "best" => ["e2e4", "d2d4"]}),
-      :json.encode(%{"id" => "miss", "fen" => @start_fen, "best" => ["g1f3"]})
+      Jason.encode!(%{"id" => "start", "fen" => @start_fen, "best" => ["e2e4", "d2d4"]}),
+      Jason.encode!(%{"id" => "miss", "fen" => @start_fen, "best" => ["g1f3"]})
     ]
 
     File.write!(path, Enum.join(records, "\n"))
@@ -41,7 +41,7 @@ defmodule EchecsEngine.BenchmarkTest do
 
     File.write!(
       opening_path,
-      IO.iodata_to_binary(:json.encode(%{"fen" => @start_fen})) <> "\n"
+      IO.iodata_to_binary(Jason.encode!(%{"fen" => @start_fen})) <> "\n"
     )
 
     on_exit(fn -> File.rm(opening_path) end)
