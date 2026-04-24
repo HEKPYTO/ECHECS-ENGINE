@@ -1,22 +1,22 @@
 defmodule EchecsEngine.Simulation do
   @moduledoc """
-  Provides the training simulation loop for the ECHECS-ENGINE.
+  Provides the supervised JSONL training loop for ECHECS-ENGINE.
 
-  This module sets up the neural network, loss functions, optimizer,
-  and dummy self-play data generators to validate the `Axon` and `EXLA`
-  compilation and training pipeline natively.
+  This module sets up the ViT policy/WDL/moves-left model, legal-move masked
+  losses, optimizer, full loop-state checkpointing, and supervised FEN/eval
+  dataset loading.
   """
 
   require Logger
 
   @doc """
-  Runs the training simulation.
+  Runs supervised training.
 
   Ensures necessary applications are started, configures `EXLA`, compiles the
-  ResNet model, and trains on uniform random batches representing valid chess states.
-  Saves the compiled state to a checkpoint upon successful execution.
+  ViT model, and trains on JSONL records containing FEN positions, legal UCI
+  moves, WDL/result/eval labels, and optional moves-left labels.
   """
-  def run() do
+  def run(opts \\ []) do
     Application.ensure_all_started(:exla)
     Application.ensure_all_started(:nx)
     Application.ensure_all_started(:axon)
@@ -28,78 +28,102 @@ defmodule EchecsEngine.Simulation do
 
     model = EchecsEngine.Model.ViT.build()
 
-    loss = fn %{policy: pred_p, value: pred_v}, %{policy: target_p, value: target_v} ->
+    loss = loss_fn()
+
+    optimizer = Polaris.Optimizers.adam(learning_rate: 1.0e-4)
+
+    batch_size = Keyword.get(opts, :batch_size, 64)
+    dataset_path = dataset_path!(opts)
+
+    Logger.info(
+      "Loading supervised training data from #{dataset_path} (batch size #{batch_size})..."
+    )
+
+    data = EchecsEngine.Dataset.batches_from_jsonl!(dataset_path, batch_size: batch_size)
+
+    Logger.info("Starting training loop...")
+
+    checkpoint_path = EchecsEngine.Checkpoint.latest_path()
+
+    loop =
+      Axon.Loop.trainer(model, loss, optimizer)
+      |> Axon.Loop.handle_event(:epoch_completed, fn loop_state ->
+        EchecsEngine.Checkpoint.save_training_state!(checkpoint_path, loop_state)
+        Logger.info("Model weights auto-saved to #{checkpoint_path} after epoch.")
+        {:continue, loop_state}
+      end)
+
+    loop =
+      case EchecsEngine.Checkpoint.load_training_state(checkpoint_path) do
+        {:ok, training_state} ->
+          Logger.info(
+            "Found existing checkpoint at #{checkpoint_path}. Loading full training state to resume..."
+          )
+
+          Axon.Loop.from_state(loop, training_state)
+
+        {:error, :enoent} ->
+          Logger.info("No checkpoint found. Training from scratch...")
+          loop
+
+        {:error, reason} ->
+          raise "failed to load training checkpoint: #{inspect(reason)}"
+      end
+
+    trained_model_state =
+      Axon.Loop.run(loop, data, %{}, epochs: training_epochs(opts), compiler: EXLA)
+
+    Logger.info("Training simulation completed successfully.")
+
+    production_path = EchecsEngine.Checkpoint.production_path()
+    File.mkdir_p!(Path.dirname(production_path))
+    EchecsEngine.Checkpoint.save_model_state!(production_path, trained_model_state)
+    Logger.info("Exported final production weights to #{production_path}")
+  end
+
+  @doc false
+  @spec training_epochs(keyword()) :: pos_integer()
+  def training_epochs(opts) do
+    opts
+    |> Keyword.get(:epochs, 2)
+    |> max(1)
+  end
+
+  @doc false
+  def loss_fn do
+    fn %{
+         policy: target_p,
+         policy_mask: policy_mask,
+         wdl: target_wdl,
+         moves_left: target_moves_left
+       },
+       %{policy: pred_p, wdl: pred_wdl, moves_left: pred_moves_left} ->
+      masked_policy = Nx.select(policy_mask, pred_p, Nx.broadcast(-1.0e9, Nx.shape(pred_p)))
+
       p_loss =
-        Axon.Losses.categorical_cross_entropy(target_p, pred_p,
+        Axon.Losses.categorical_cross_entropy(target_p, masked_policy,
           reduction: :mean,
           from_logits: true
         )
 
-      v_loss = Axon.Losses.mean_squared_error(target_v, pred_v, reduction: :mean)
-      Nx.add(p_loss, v_loss)
-    end
-
-    optimizer = Polaris.Optimizers.adam(learning_rate: 1.0e-4)
-
-    batch_size = 64
-    num_batches = 50
-
-    Logger.info(
-      "Generating #{num_batches} batches of dummy self-play data (batch size #{batch_size})..."
-    )
-
-    data =
-      Stream.repeatedly(fn ->
-        key = Nx.Random.key(System.system_time())
-        {inputs, key} = Nx.Random.uniform(key, shape: {batch_size, 119, 8, 8}, type: :f32)
-
-        {target_policy, key} = Nx.Random.uniform(key, shape: {batch_size, 4672}, type: :f32)
-
-        target_policy =
-          Nx.divide(target_policy, Nx.sum(target_policy, axes: [-1], keep_axes: true))
-
-        {target_value, _key} = Nx.Random.uniform(key, shape: {batch_size, 1}, type: :f32)
-        target_value = Nx.subtract(Nx.multiply(target_value, 2.0), 1.0)
-
-        {inputs, %{policy: target_policy, value: target_value}}
-      end)
-      |> Enum.take(num_batches)
-
-    Logger.info("Starting training loop...")
-
-    checkpoint_path = "models/echecs_engine_latest.axon"
-
-    initial_model_state =
-      if File.exists?(checkpoint_path) do
-        Logger.info(
-          "Found existing checkpoint at #{checkpoint_path}. Loading weights to resume training..."
+      wdl_loss =
+        Axon.Losses.categorical_cross_entropy(target_wdl, pred_wdl,
+          reduction: :mean,
+          from_logits: false
         )
 
-        Nx.deserialize(File.read!(checkpoint_path))
-      else
-        Logger.info("No checkpoint found. Training from scratch...")
-        %{}
-      end
+      moves_left_loss =
+        Axon.Losses.mean_squared_error(target_moves_left, pred_moves_left, reduction: :mean)
 
-    trained_model_state =
-      Axon.Loop.trainer(model, loss, optimizer)
-      |> Axon.Loop.handle_event(:epoch_completed, fn loop_state ->
-        File.mkdir_p!("models")
-        
-        # Serialize purely the model_state safely through Nx.serialize
-        serialized = Nx.serialize(loop_state.step_state.model_state)
-        File.write!(checkpoint_path, serialized)
-        
-        Logger.info("Model weights auto-saved to #{checkpoint_path} after epoch.")
-        
-        {:continue, loop_state}
-      end)
-      |> Axon.Loop.run(data, initial_model_state, epochs: 2, compiler: EXLA)
+      p_loss
+      |> Nx.add(wdl_loss)
+      |> Nx.add(Nx.multiply(moves_left_loss, 0.01))
+    end
+  end
 
-    Logger.info("Training simulation completed successfully.")
-
-    serialized = Nx.serialize(trained_model_state)
-    File.write!(checkpoint_path, serialized)
-    Logger.info("Final model checkpoint saved to #{checkpoint_path}")
+  defp dataset_path!(opts) do
+    Keyword.get(opts, :dataset_path) || System.get_env("ENGINE_DATASET") ||
+      raise ArgumentError,
+            "missing supervised dataset path; pass dataset_path: path or set ENGINE_DATASET"
   end
 end

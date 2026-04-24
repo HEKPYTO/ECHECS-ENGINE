@@ -6,8 +6,17 @@ defmodule EchecsEngine.ServingTest do
 
     result = Nx.Serving.batched_run(EchecsEngine.Serving, input_tensor)
 
-    assert %{policy: policy_tensor, value: value_tensor} = result
+    assert %{
+             policy: policy_tensor,
+             value: value_tensor,
+             wdl: wdl_tensor,
+             moves_left: moves_left_tensor
+           } =
+             result
+
     assert Nx.shape(policy_tensor) == {4672}
     assert Nx.shape(value_tensor) == {1}
+    assert Nx.shape(wdl_tensor) == {3}
+    assert Nx.shape(moves_left_tensor) == {1}
   end
 end

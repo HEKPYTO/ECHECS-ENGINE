@@ -1,10 +1,10 @@
-defmodule Mix.Tasks.Echecs.Export do
+defmodule Mix.Tasks.Engine.Export do
   @moduledoc """
-  Exports the trained neural network model state (weights and biases) 
+  Exports the trained neural network model state (weights and biases)
   from a continuous training checkpoint, stripping out optimizer state.
 
   Usage:
-      mix echecs.export
+      mix engine.export
   """
 
   use Mix.Task
@@ -13,19 +13,19 @@ defmodule Mix.Tasks.Echecs.Export do
   @shortdoc "Exports raw model weights from a training checkpoint"
 
   def run(_args) do
-    # Ensure necessary apps are started
     Application.ensure_all_started(:nx)
     Application.ensure_all_started(:axon)
 
-    checkpoint_path = "models/echecs_engine_latest.axon"
-    export_path = "models/echecs_engine_production.axon"
+    checkpoint_path = EchecsEngine.Checkpoint.latest_path()
+    export_path = EchecsEngine.Checkpoint.production_path()
 
     if File.exists?(checkpoint_path) do
       Logger.info("Reading training checkpoint from #{checkpoint_path}...")
-      
-      File.mkdir_p!("models")
-      File.cp!(checkpoint_path, export_path)
-      
+
+      {:ok, model_state} = EchecsEngine.Checkpoint.load_model_state(checkpoint_path)
+
+      EchecsEngine.Checkpoint.save_model_state!(export_path, model_state)
+
       Logger.info("Successfully exported production model weights to #{export_path}")
     else
       Logger.error("No training checkpoint found at #{checkpoint_path}. Run training first.")

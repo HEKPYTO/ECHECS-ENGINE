@@ -29,13 +29,21 @@ defmodule EchecsEngine.Model.ViT do
       |> transformer_encoder_block(embed_dim, 8)
       |> transformer_encoder_block(embed_dim, 8)
 
-    value_head =
+    wdl_head =
       x
       |> Axon.global_avg_pool(keep_axes: false)
       |> Axon.dense(256)
       |> Axon.mish()
+      |> Axon.dense(3)
+      |> Axon.softmax()
+
+    moves_left_head =
+      x
+      |> Axon.global_avg_pool(keep_axes: false)
+      |> Axon.dense(128)
+      |> Axon.mish()
       |> Axon.dense(1)
-      |> Axon.tanh()
+      |> Axon.relu()
 
     policy_head =
       x
@@ -45,7 +53,7 @@ defmodule EchecsEngine.Model.ViT do
       |> Axon.mish()
       |> Axon.flatten()
 
-    Axon.container(%{policy: policy_head, value: value_head})
+    Axon.container(%{policy: policy_head, wdl: wdl_head, moves_left: moves_left_head})
   end
 
   @doc false
