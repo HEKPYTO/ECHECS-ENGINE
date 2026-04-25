@@ -8,12 +8,14 @@ defmodule EchecsEngine.DockerConfigTest do
   test "engine-match is configured as a dockerized fastchess gate" do
     compose = File.read!(@compose)
 
+    assert compose =~ "services:"
+    assert compose =~ "\n  engine:\n"
+    assert compose =~ "\n  engine-nvidia:\n"
     assert compose =~ "engine-match:"
     assert compose =~ ~r/engine-match:.*dockerfile: Dockerfile\.match/s
     assert compose =~ ~r/engine-match:.*image: echecs_engine:match/s
     assert compose =~ ~r/engine-match:.*XLA_TARGET=cpu/s
     assert compose =~ ~r/engine-match:.*\.\/models:\/app\/models:z/s
-    refute compose =~ "engine-amd:"
   end
 
   test "backend images use distinct tags and ABI-matched bases" do
@@ -32,14 +34,13 @@ defmodule EchecsEngine.DockerConfigTest do
     assert compose =~ ~r/engine-match:.*image: echecs_engine:match/s
   end
 
-  test "Dockerfile keeps CPU and CUDA build configuration only" do
+  test "Dockerfile supports CPU and CUDA build configuration only" do
     dockerfile = File.read!(@dockerfile)
 
-    refute dockerfile =~ "ARG XLA_ARCHIVE_PATH"
-    refute dockerfile =~ "ARG XLA_ARCHIVE_URL"
-    refute dockerfile =~ "COPY xla-artifacts/ /opt/xla-artifacts/"
-    refute dockerfile =~ "COPY deps/echecs /opt/echecs"
-    refute dockerfile =~ "ROCm builds require XLA_ARCHIVE_PATH or XLA_ARCHIVE_URL"
+    assert dockerfile =~ "ARG BUILDER_BASE=elixir:1.19-slim"
+    assert dockerfile =~ "ARG RUNTIME_BASE=debian:trixie-slim"
+    assert dockerfile =~ "ARG CUDA_RUNTIME_PACKAGES="
+    assert dockerfile =~ "if [ \"${XLA_TARGET}\" = \"cuda12\" ]; then"
     assert dockerfile =~ "RUN mix deps.get --only $MIX_ENV"
     assert dockerfile =~ "RUN cd deps/echecs && elixir scripts/generate_magic_cache.exs"
   end

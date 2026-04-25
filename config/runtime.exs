@@ -5,7 +5,6 @@ xla_target = System.get_env("XLA_TARGET", "cpu")
 preferred_clients =
   cond do
     String.starts_with?(xla_target, "cuda") -> [:cuda, :host]
-    xla_target == "rocm" -> [:rocm, :host]
     true -> [:host]
   end
 
@@ -42,11 +41,6 @@ end
 config :exla, :clients,
   cuda: [
     platform: :cuda,
-    preallocate: preallocate?,
-    memory_fraction: memory_fraction
-  ],
-  rocm: [
-    platform: :rocm,
     preallocate: preallocate?,
     memory_fraction: memory_fraction
   ],
