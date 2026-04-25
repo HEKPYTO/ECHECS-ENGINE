@@ -22,7 +22,6 @@ RUN mix local.hex --force && \
     mix local.rebar --force
 
 COPY mix.exs mix.lock ./
-
 RUN mix deps.get --only $MIX_ENV
 RUN cd deps/echecs && elixir scripts/generate_magic_cache.exs
 RUN mix deps.compile
@@ -43,7 +42,7 @@ USER root
 ENV MIX_ENV=prod \
     LANG=C.UTF-8 \
     XLA_TARGET=${XLA_TARGET} \
-    LD_LIBRARY_PATH=/opt/rocm/lib:/opt/rocm/lib64:/usr/lib/x86_64-linux-gnu/nvshmem/12:/usr/local/nvidia/lib:/usr/local/nvidia/lib64:/usr/local/cuda/lib64:/usr/local/cuda-12.9/targets/x86_64-linux/lib:/usr/local/cuda-12.8/targets/x86_64-linux/lib
+    LD_LIBRARY_PATH=/usr/lib/x86_64-linux-gnu/nvshmem/12:/usr/local/nvidia/lib:/usr/local/nvidia/lib64:/usr/local/cuda/lib64:/usr/local/cuda-12.9/targets/x86_64-linux/lib:/usr/local/cuda-12.8/targets/x86_64-linux/lib
 
 RUN apt-get update -y && \
     apt-get install -y libstdc++6 openssl ca-certificates bash && \
