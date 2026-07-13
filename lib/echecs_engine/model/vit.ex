@@ -24,10 +24,10 @@ defmodule EchecsEngine.Model.ViT do
 
     x =
       x
-      |> transformer_encoder_block(embed_dim, 8)
-      |> transformer_encoder_block(embed_dim, 8)
-      |> transformer_encoder_block(embed_dim, 8)
-      |> transformer_encoder_block(embed_dim, 8)
+      |> transformer_encoder_block(embed_dim, 8, 0)
+      |> transformer_encoder_block(embed_dim, 8, 1)
+      |> transformer_encoder_block(embed_dim, 8, 2)
+      |> transformer_encoder_block(embed_dim, 8, 3)
 
     wdl_head =
       x
@@ -57,10 +57,12 @@ defmodule EchecsEngine.Model.ViT do
   end
 
   @doc false
-  defp transformer_encoder_block(x, embed_dim, num_heads) do
+  defp transformer_encoder_block(x, embed_dim, num_heads, index) do
+    prefix = "block_#{index}"
+
     ln_x = Axon.layer_norm(x)
 
-    qkv = Axon.dense(ln_x, embed_dim * 3, name: "qkv_proj")
+    qkv = Axon.dense(ln_x, embed_dim * 3, name: "#{prefix}_qkv_proj")
 
     attention_out =
       Axon.nx(qkv, fn t ->
@@ -80,9 +82,7 @@ defmodule EchecsEngine.Model.ViT do
         scores = Nx.dot(q, [3], [0, 1], k, [3], [0, 1])
         scores = Nx.divide(scores, Nx.sqrt(head_dim))
 
-        probs = Nx.exp(scores)
-        sums = Nx.sum(probs, axes: [-1], keep_axes: true)
-        probs = Nx.divide(probs, sums)
+        probs = attention_probabilities(scores)
 
         out = Nx.dot(probs, [3], [0, 1], v, [2], [0, 1])
 
@@ -91,7 +91,7 @@ defmodule EchecsEngine.Model.ViT do
         |> Nx.reshape({batch, seq_len, embed_dim})
       end)
 
-    attention_out = Axon.dense(attention_out, embed_dim, name: "out_proj")
+    attention_out = Axon.dense(attention_out, embed_dim, name: "#{prefix}_out_proj")
 
     x = Axon.add(x, attention_out)
 
@@ -99,15 +99,23 @@ defmodule EchecsEngine.Model.ViT do
 
     gate =
       ln_x2
-      |> Axon.dense(embed_dim * 4, name: "swiglu_gate")
+      |> Axon.dense(embed_dim * 4, name: "#{prefix}_swiglu_gate")
       |> Axon.mish()
 
-    up = Axon.dense(ln_x2, embed_dim * 4, name: "swiglu_up")
+    up = Axon.dense(ln_x2, embed_dim * 4, name: "#{prefix}_swiglu_up")
 
     ffn_out =
       Axon.multiply(gate, up)
-      |> Axon.dense(embed_dim, name: "swiglu_down")
+      |> Axon.dense(embed_dim, name: "#{prefix}_swiglu_down")
 
     Axon.add(x, ffn_out)
+  end
+
+  @doc false
+  @spec attention_probabilities(Nx.Tensor.t()) :: Nx.Tensor.t()
+  def attention_probabilities(scores) do
+    max_scores = Nx.reduce_max(scores, axes: [-1], keep_axes: true)
+    weights = Nx.exp(Nx.subtract(scores, max_scores))
+    Nx.divide(weights, Nx.sum(weights, axes: [-1], keep_axes: true))
   end
 end

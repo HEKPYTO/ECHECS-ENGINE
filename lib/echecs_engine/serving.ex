@@ -68,6 +68,14 @@ defmodule EchecsEngine.Serving do
         Logger.warning("No model checkpoint found for serving. Initializing random weights.")
         init_fn.(template, Axon.ModelState.empty())
 
+      {:error, {:incompatible_schema, loaded, expected}} ->
+        Logger.warning(
+          "Model checkpoint schema v#{loaded} is incompatible with current v#{expected}. " <>
+            "Initializing random weights; retrain to refresh the checkpoint."
+        )
+
+        init_fn.(template, Axon.ModelState.empty())
+
       {:error, reason} ->
         raise "failed to load serving model parameters: #{inspect(reason)}"
     end

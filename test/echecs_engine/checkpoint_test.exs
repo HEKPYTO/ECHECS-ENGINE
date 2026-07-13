@@ -129,4 +129,36 @@ defmodule EchecsEngine.CheckpointTest do
            |> Nx.all()
            |> Nx.to_number() == 1
   end
+
+  test "rejects an evaluator checkpoint without creating atoms from its payload", %{
+    tmp_dir: tmp_dir
+  } do
+    path = Path.join(tmp_dir, "untrusted.axon")
+    atom_name = "untrusted_checkpoint_#{System.unique_integer([:positive])}"
+    File.write!(path, <<131, 119, byte_size(atom_name), atom_name::binary>>)
+
+    assert {:error, _reason} = Checkpoint.load_evaluator_state(path)
+    assert_raise ArgumentError, fn -> String.to_existing_atom(atom_name) end
+  end
+
+  test "load_model_state/1 rejects a checkpoint with an incompatible model schema version",
+       %{tmp_dir: tmp_dir} do
+    model_state = %{"layer" => %{"kernel" => Nx.tensor([[1.0]])}}
+    path = Path.join(tmp_dir, "production.axon")
+
+    incompatible_version = Checkpoint.model_schema_version() + 100
+
+    metadata =
+      Checkpoint.metadata()
+      |> Map.put(:model_schema_version, incompatible_version)
+
+    checkpoint = %{metadata: metadata, model_state_binary: Nx.serialize(model_state)}
+    File.write!(path, :erlang.term_to_binary(checkpoint))
+
+    assert {:error, {:incompatible_schema, loaded, expected}} =
+             Checkpoint.load_model_state(path)
+
+    assert loaded == incompatible_version
+    assert expected == Checkpoint.model_schema_version()
+  end
 end

@@ -6,7 +6,7 @@ defmodule EchecsEngine.Checkpoint do
   alias Axon.Loop.State
 
   @format "echecs-engine-model-state"
-  @model_schema_version 2
+  @model_schema_version 3
   @latest_path "models/echecs_engine_latest.axon"
   @production_path "models/echecs_engine_production.axon"
   @evaluator_path "models/echecs_engine_evaluator.axon"
@@ -57,16 +57,25 @@ defmodule EchecsEngine.Checkpoint do
       case load_model_state(path) do
         {:ok, model_state} -> {:halt, {:ok, model_state}}
         {:error, :enoent} -> {:cont, {:error, :enoent}}
+        {:error, {:incompatible_schema, _, _} = reason} -> {:halt, {:error, reason}}
         {:error, reason} -> {:halt, {:error, {path, reason}}}
       end
     end)
   end
 
   def load_model_state(path) when is_binary(path) do
-    with {:ok, %{model_state: model_state}} <- load_model_checkpoint(path) do
+    with {:ok, %{model_state: model_state, metadata: metadata}} <- load_model_checkpoint(path),
+         :ok <- validate_schema_compatibility(metadata) do
       {:ok, model_state}
     end
   end
+
+  defp validate_schema_compatibility(%{model_schema_version: version})
+       when is_integer(version) and version != @model_schema_version do
+    {:error, {:incompatible_schema, version, @model_schema_version}}
+  end
+
+  defp validate_schema_compatibility(_metadata), do: :ok
 
   @spec load_model_checkpoint(String.t()) ::
           {:ok, %{model_state: map(), metadata: map()}} | {:error, term()}
@@ -134,7 +143,7 @@ defmodule EchecsEngine.Checkpoint do
   def load_evaluator_state(path) when is_binary(path) do
     with {:ok, binary} <- File.read(path) do
       try do
-        case :erlang.binary_to_term(binary) do
+        case safe_binary_to_term(binary) do
           %{metadata: metadata, evaluator_artifact: payload} ->
             {:ok, %{artifact: deserialize_term(payload), metadata: metadata}}
 
@@ -172,7 +181,7 @@ defmodule EchecsEngine.Checkpoint do
 
       {:error, _reason} ->
         try do
-          case :erlang.binary_to_term(binary) do
+          case safe_binary_to_term(binary) do
             %{metadata: metadata, model_state_binary: model_state_binary} ->
               model_state = Nx.deserialize(model_state_binary)
               {:ok, %{model_state: model_state, metadata: metadata}}
@@ -222,7 +231,7 @@ defmodule EchecsEngine.Checkpoint do
 
   defp decode_training_checkpoint(binary) do
     try do
-      case :erlang.binary_to_term(binary) do
+      case safe_binary_to_term(binary) do
         %{metadata: metadata, training_state_binary: training_state_binary} ->
           with {:ok, state} <- decode_training_state(training_state_binary) do
             {:ok, %{state: state, metadata: metadata}}
@@ -241,6 +250,8 @@ defmodule EchecsEngine.Checkpoint do
       {:ok, %{state: state, metadata: Map.put(metadata(), :legacy?, true)}}
     end
   end
+
+  defp safe_binary_to_term(binary), do: :erlang.binary_to_term(binary, [:safe])
 
   defp serialize_term(%Nx.Tensor{} = tensor),
     do: %{__nx_tensor__: true, data: Nx.serialize(tensor)}
