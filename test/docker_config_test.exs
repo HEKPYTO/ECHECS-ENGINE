@@ -3,6 +3,7 @@ defmodule EchecsEngine.DockerConfigTest do
 
   @compose Path.expand("../docker-compose.yml", __DIR__)
   @dockerfile Path.expand("../Dockerfile", __DIR__)
+  @rocm_dockerfile Path.expand("../Dockerfile.rocm", __DIR__)
   @match_dockerfile Path.expand("../Dockerfile.match", __DIR__)
 
   test "engine-match is configured as a dockerized fastchess gate" do
@@ -11,6 +12,7 @@ defmodule EchecsEngine.DockerConfigTest do
     assert compose =~ "services:"
     assert compose =~ "\n  engine:\n"
     assert compose =~ "\n  engine-nvidia:\n"
+    assert compose =~ "\n  engine-amd:\n"
     assert compose =~ "engine-match:"
     assert compose =~ ~r/engine-match:.*dockerfile: Dockerfile\.match/s
     assert compose =~ ~r/engine-match:.*image: echecs_engine:match/s
@@ -31,10 +33,18 @@ defmodule EchecsEngine.DockerConfigTest do
 
     assert compose =~ ~r/engine-nvidia:.*image: echecs_engine:nvidia/s
     assert compose =~ ~r/engine-nvidia:.*platform: linux\/amd64/s
+
+    assert compose =~
+             ~r/engine-amd:.*dockerfile: Dockerfile\.rocm.*BUILDER_BASE: hexpm\/elixir:1\.19\.5-erlang-28\.3\.1-ubuntu-noble-20260410.*XLA_TARGET: rocm.*XLA_BUILD: "true".*RUNTIME_BASE: rocm\/dev-ubuntu-24\.04:7\.2\.4-complete/s
+
+    assert compose =~ ~r/engine-amd:.*image: echecs_engine:amd/s
+    assert compose =~ ~r/engine-amd:.*platform: linux\/amd64/s
+    assert compose =~ ~r/engine-amd:.*- \/dev\/kfd.*- \/dev\/dri/s
+    assert compose =~ ~r/engine-amd:.*ROCM_PATH=\/opt\/rocm/s
     assert compose =~ ~r/engine-match:.*image: echecs_engine:match/s
   end
 
-  test "Dockerfile supports CPU and CUDA build configuration only" do
+  test "Dockerfile keeps CPU and CUDA build configuration isolated" do
     dockerfile = File.read!(@dockerfile)
 
     assert dockerfile =~ "ARG BUILDER_BASE=elixir:1.19-slim"
@@ -43,6 +53,41 @@ defmodule EchecsEngine.DockerConfigTest do
     assert dockerfile =~ "if [ \"${XLA_TARGET}\" = \"cuda12\" ]; then"
     assert dockerfile =~ "RUN mix deps.get --only $MIX_ENV"
     assert dockerfile =~ "RUN cd deps/echecs && elixir scripts/generate_magic_cache.exs"
+  end
+
+  test "Dockerfile.rocm builds XLA from source against the ROCm runtime" do
+    dockerfile = File.read!(@rocm_dockerfile)
+
+    assert dockerfile =~
+             "ARG BUILDER_BASE=hexpm/elixir:1.19.5-erlang-28.3.1-ubuntu-noble-20260410"
+
+    assert dockerfile =~ "ARG RUNTIME_BASE=rocm/dev-ubuntu-24.04:7.2.4-complete"
+    assert dockerfile =~ "ARG BAZEL_VERSION=7.7.0"
+
+    assert dockerfile =~
+             "ARG BAZEL_SHA256=fe7e799cbc9140f986b063e06800a3d4c790525075c877d00a7112669824acbf"
+
+    assert dockerfile =~ "https://github.com/bazelbuild/bazel/releases/download/${BAZEL_VERSION}"
+    assert dockerfile =~ "sha256sum --check --strict"
+    refute dockerfile =~ "FROM bazelbuild/bazel"
+    assert dockerfile =~ "FROM ${RUNTIME_BASE} AS builder"
+    assert dockerfile =~ "COPY --from=elixir /usr/local/bin /usr/local/bin"
+    assert dockerfile =~ "COPY --from=elixir /usr/local/lib/elixir /usr/local/lib/elixir"
+    assert dockerfile =~ "COPY --from=elixir /usr/local/lib/erlang /usr/local/lib/erlang"
+    refute dockerfile =~ "COPY --from=rocm /opt/rocm /opt/rocm"
+    assert dockerfile =~ "XLA_TARGET=${XLA_TARGET}"
+    assert dockerfile =~ "XLA_BUILD=${XLA_BUILD}"
+    assert dockerfile =~ "ROCM_PATH=/opt/rocm"
+    assert dockerfile =~ "PYTHON_BIN_PATH=/usr/bin/python3"
+    assert dockerfile =~ "xxd"
+    assert dockerfile =~ "ln -sf /usr/bin/clang-18 /usr/local/bin/clang"
+    assert dockerfile =~ "ln -sf /usr/bin/clang++-18 /usr/local/bin/clang++"
+    assert dockerfile =~ "miopen-hip-dev"
+
+    assert dockerfile =~
+             "ARG ROCM_AMDGPU_TARGETS=gfx90a,gfx942,gfx1030,gfx1100,gfx1200,gfx1201"
+
+    assert dockerfile =~ ~r/mix deps.get.*TF_ROCM_AMDGPU_TARGETS/s
   end
 
   test "Dockerfile.match builds fastchess and installs stockfish" do

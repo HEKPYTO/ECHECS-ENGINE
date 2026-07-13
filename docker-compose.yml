@@ -42,6 +42,33 @@ services:
     gpus: all
     command: ["eval", "EchecsEngine.Simulation.run()"]
 
+  engine-amd:
+    platform: linux/amd64
+    build:
+      context: .
+      dockerfile: Dockerfile.rocm
+      args:
+        BUILDER_BASE: hexpm/elixir:1.19.5-erlang-28.3.1-ubuntu-noble-20260410
+        XLA_TARGET: rocm
+        XLA_BUILD: "true"
+        RUNTIME_BASE: rocm/dev-ubuntu-24.04:7.2.4-complete
+    image: echecs_engine:amd
+    environment:
+      - MIX_ENV=prod
+      - ENGINE_DATASET=/app/data/train.jsonl
+      - XLA_TARGET=rocm
+      - EXLA_PREALLOCATE=false
+      - EXLA_MEMORY_FRACTION=0.25
+      - ROCM_PATH=/opt/rocm
+      - LD_LIBRARY_PATH=/opt/rocm/lib
+    volumes:
+      - ./models:/app/models:z
+      - ./data:/app/data:z
+    devices:
+      - /dev/kfd
+      - /dev/dri
+    command: ["eval", "EchecsEngine.Simulation.run()"]
+
   engine-match:
     build:
       context: .

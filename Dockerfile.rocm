@@ -1,0 +1,86 @@
+ARG BUILDER_BASE=hexpm/elixir:1.19.5-erlang-28.3.1-ubuntu-noble-20260410
+ARG RUNTIME_BASE=rocm/dev-ubuntu-24.04:7.2.4-complete
+ARG BAZEL_VERSION=7.7.0
+ARG BAZEL_SHA256=fe7e799cbc9140f986b063e06800a3d4c790525075c877d00a7112669824acbf
+
+FROM ${BUILDER_BASE} AS elixir
+
+FROM ${RUNTIME_BASE} AS builder
+
+ARG DEBIAN_FRONTEND=noninteractive
+ARG XLA_TARGET=rocm
+ARG XLA_BUILD=true
+ARG BAZEL_VERSION
+ARG BAZEL_SHA256
+ARG ROCM_AMDGPU_TARGETS=gfx90a,gfx942,gfx1030,gfx1100,gfx1200,gfx1201
+
+COPY --from=elixir /usr/local/bin /usr/local/bin
+COPY --from=elixir /usr/local/lib/elixir /usr/local/lib/elixir
+COPY --from=elixir /usr/local/lib/erlang /usr/local/lib/erlang
+
+ENV MIX_ENV=prod \
+    LANG=C.UTF-8 \
+    XLA_TARGET=${XLA_TARGET} \
+    XLA_BUILD=${XLA_BUILD} \
+    ROCM_PATH=/opt/rocm \
+    LD_LIBRARY_PATH=/opt/rocm/lib \
+    PATH=/opt/rocm/bin:${PATH} \
+    PYTHON_BIN_PATH=/usr/bin/python3 \
+    CC=clang-18 \
+    CXX=clang++-18
+
+RUN apt-get update -y && \
+    apt-get install -y build-essential git curl python3 python3-numpy python-is-python3 clang-18 lld-18 xxd miopen-hip-dev && \
+    ln -sf /usr/bin/clang-18 /usr/local/bin/clang && \
+    ln -sf /usr/bin/clang++-18 /usr/local/bin/clang++ && \
+    curl --fail --location --silent --show-error --retry 3 \
+      --output /usr/local/bin/bazel \
+      "https://github.com/bazelbuild/bazel/releases/download/${BAZEL_VERSION}/bazel-${BAZEL_VERSION}-linux-x86_64" && \
+    echo "${BAZEL_SHA256}  /usr/local/bin/bazel" | sha256sum --check --strict - && \
+    chmod +x /usr/local/bin/bazel && \
+    bazel --version && \
+    clang-18 --version && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+RUN mix local.hex --force && \
+    mix local.rebar --force
+
+COPY mix.exs mix.lock ./
+RUN mix deps.get --only $MIX_ENV
+# Scope the XLA ROCm GPU build targets. The literal ${ROCM_AMDGPU_TARGETS} is
+# written here on purpose: it is expanded later by the xla Makefile's shell recipe
+# when it invokes Bazel, where the Docker ARG is available as an environment variable.
+RUN sed -i 's|TF_ROCM_AMDGPU_TARGETS="[^"]*"|TF_ROCM_AMDGPU_TARGETS="${ROCM_AMDGPU_TARGETS}"|' deps/xla/lib/xla.ex
+RUN cd deps/echecs && elixir scripts/generate_magic_cache.exs
+RUN mix deps.compile
+
+COPY . .
+
+RUN mix compile
+RUN mix release
+
+FROM ${RUNTIME_BASE} AS runner
+
+ARG DEBIAN_FRONTEND=noninteractive
+ARG XLA_TARGET=rocm
+
+ENV MIX_ENV=prod \
+    LANG=C.UTF-8 \
+    XLA_TARGET=${XLA_TARGET} \
+    ROCM_PATH=/opt/rocm \
+    LD_LIBRARY_PATH=/opt/rocm/lib
+
+RUN apt-get update -y && \
+    apt-get install -y libstdc++6 openssl ca-certificates bash && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+COPY --from=builder /app/_build/prod/rel/echecs_engine ./
+
+ENTRYPOINT ["/app/bin/echecs_engine"]
+CMD ["start"]

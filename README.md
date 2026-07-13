@@ -121,6 +121,21 @@ docker compose build engine-nvidia
 docker compose up -d engine-nvidia
 ```
 
+**AMD GPU Training (ROCm):**
+
+This path requires a supported AMD GPU, a Linux host with ROCm installed, and Docker access to
+`/dev/kfd` and `/dev/dri`. The first build compiles XLA for ROCm from source, so it can take a
+substantial amount of time and disk space. It is intentionally a separate image: it does not
+change the CPU or NVIDIA CUDA build paths.
+
+```bash
+docker compose build engine-amd
+docker compose up -d engine-amd
+```
+
+Use `docker compose logs -f engine-amd` to confirm that EXLA selected the ROCm client before
+starting a long training run.
+
 ### Checkpointing & Model Exporting
 
 The system features robust continuous checkpointing to ensure long-term training runs never lose progress.

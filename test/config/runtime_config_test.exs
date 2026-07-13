@@ -38,6 +38,18 @@ defmodule EchecsEngine.RuntimeConfigTest do
     assert runtime[:exla][:preferred_clients] == [:cuda, :host]
   end
 
+  test "prefers rocm when XLA_TARGET is rocm" do
+    System.put_env("XLA_TARGET", "rocm")
+    {runtime, _imports} = Config.Reader.read_imports!(@runtime)
+
+    assert runtime[:exla][:preferred_clients] == [:rocm, :host]
+
+    clients = runtime[:exla][:clients]
+    assert clients[:rocm][:platform] == :rocm
+    assert clients[:rocm][:preallocate] == false
+    assert clients[:rocm][:memory_fraction] == 0.25
+  end
+
   defp restore_env(key, nil), do: System.delete_env(key)
   defp restore_env(key, value), do: System.put_env(key, value)
 end
