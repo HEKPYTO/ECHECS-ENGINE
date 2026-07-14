@@ -4,6 +4,7 @@ defmodule EchecsEngine.DockerConfigTest do
   @compose Path.expand("../docker-compose.yml", __DIR__)
   @dockerfile Path.expand("../Dockerfile", __DIR__)
   @rocm_dockerfile Path.expand("../Dockerfile.rocm", __DIR__)
+  @rocm_archive_image_script Path.expand("../scripts/rocm-xla-image", __DIR__)
   @match_dockerfile Path.expand("../Dockerfile.match", __DIR__)
 
   test "engine-match is configured as a dockerized fastchess gate" do
@@ -35,7 +36,7 @@ defmodule EchecsEngine.DockerConfigTest do
     assert compose =~ ~r/engine-nvidia:.*platform: linux\/amd64/s
 
     assert compose =~
-             ~r/engine-amd:.*dockerfile: Dockerfile\.rocm.*BUILDER_BASE: hexpm\/elixir:1\.19\.5-erlang-28\.3\.1-ubuntu-noble-20260410.*XLA_TARGET: rocm.*XLA_BUILD: "true".*RUNTIME_BASE: rocm\/dev-ubuntu-24\.04:7\.2\.4-complete/s
+             ~r/engine-amd:.*dockerfile: Dockerfile\.rocm.*BUILDER_BASE: hexpm\/elixir:1\.19\.5-erlang-28\.3\.1-ubuntu-noble-20260410.*XLA_TARGET: rocm.*XLA_ARCHIVE_IMAGE: "\$\{XLA_ARCHIVE_IMAGE:.*scripts\/rocm-xla-image.*RUNTIME_BASE: rocm\/dev-ubuntu-24\.04:7\.2\.4-complete/s
 
     assert compose =~ ~r/engine-amd:.*image: echecs_engine:amd/s
     assert compose =~ ~r/engine-amd:.*platform: linux\/amd64/s
@@ -55,7 +56,7 @@ defmodule EchecsEngine.DockerConfigTest do
     assert dockerfile =~ "RUN cd deps/echecs && elixir scripts/generate_magic_cache.exs"
   end
 
-  test "Dockerfile.rocm builds XLA from source against the ROCm runtime" do
+  test "Dockerfile.rocm builds and consumes a reusable ROCm XLA archive" do
     dockerfile = File.read!(@rocm_dockerfile)
 
     assert dockerfile =~
@@ -76,7 +77,10 @@ defmodule EchecsEngine.DockerConfigTest do
     assert dockerfile =~ "COPY --from=elixir /usr/local/lib/erlang /usr/local/lib/erlang"
     refute dockerfile =~ "COPY --from=rocm /opt/rocm /opt/rocm"
     assert dockerfile =~ "XLA_TARGET=${XLA_TARGET}"
-    assert dockerfile =~ "XLA_BUILD=${XLA_BUILD}"
+    assert dockerfile =~ "FROM scratch AS xla-archive"
+    assert dockerfile =~ "ARG XLA_ARCHIVE_IMAGE=scratch"
+    assert dockerfile =~ "FROM ${XLA_ARCHIVE_IMAGE} AS xla-prebuilt"
+    assert dockerfile =~ "XLA_ARCHIVE_PATH=/opt/xla/xla_extension.tar.gz"
     assert dockerfile =~ "ROCM_PATH=/opt/rocm"
     assert dockerfile =~ "PYTHON_BIN_PATH=/usr/bin/python3"
     assert dockerfile =~ "xxd"
@@ -85,7 +89,7 @@ defmodule EchecsEngine.DockerConfigTest do
     assert dockerfile =~ "miopen-hip-dev"
 
     assert dockerfile =~
-             "ARG ROCM_AMDGPU_TARGETS=gfx90a,gfx942,gfx1030,gfx1100,gfx1200,gfx1201"
+             "ARG ROCM_AMDGPU_TARGETS=gfx1201"
 
     assert dockerfile =~ ~r/mix deps.get.*TF_ROCM_AMDGPU_TARGETS/s
   end
@@ -99,5 +103,12 @@ defmodule EchecsEngine.DockerConfigTest do
     assert dockerfile =~ "make -j"
     assert dockerfile =~ "PATH=/usr/games:${PATH}"
     assert dockerfile =~ "/usr/local/bin/fastchess"
+  end
+
+  test "ROCm archive image tag changes with Docker and dependency inputs" do
+    {image, 0} = System.cmd(@rocm_archive_image_script, [], cd: Path.expand("..", __DIR__))
+
+    assert image =~
+             ~r/^ghcr\.io\/hekpyto\/echecs-engine\/xla-rocm:gfx1201-rocm7\.2\.4-xla0\.10\.0-exla0\.11\.0-[0-9a-f]{16}\n$/
   end
 end
