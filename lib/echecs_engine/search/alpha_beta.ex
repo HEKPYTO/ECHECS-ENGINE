@@ -382,11 +382,6 @@ defmodule EchecsEngine.Search.AlphaBeta do
       depth < 3 ->
         nil
 
-      # ply is always >= 1 when called from root children; this guard is
-      # retained as a safety net for any future refactor that changes call sites
-      ply < 1 ->
-        nil
-
       Echecs.Game.in_check?(game) ->
         nil
 
@@ -502,7 +497,7 @@ defmodule EchecsEngine.Search.AlphaBeta do
 
           inference ->
             tensor =
-              EchecsEngine.Tensor.to_tensor(game, history_games || [])
+              EchecsEngine.Tensor.to_tensor(game, history_games)
               |> Nx.squeeze(axes: [0])
               |> Nx.as_type(:f32)
 

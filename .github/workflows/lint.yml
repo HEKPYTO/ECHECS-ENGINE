@@ -57,7 +57,7 @@ jobs:
         run: mix compile --warnings-as-errors
 
       - name: Run Dialyzer
-        run: mix dialyzer --format dialyxir
+        run: mix dialyzer --format github
 
       - name: Run tests
         run: mix test
