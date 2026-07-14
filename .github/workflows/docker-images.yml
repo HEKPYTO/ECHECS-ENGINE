@@ -13,7 +13,7 @@ concurrency:
 jobs:
   build-images:
     runs-on: ubuntu-latest
-    timeout-minutes: 90
+    timeout-minutes: 120
     strategy:
       fail-fast: false
       matrix:
@@ -22,8 +22,11 @@ jobs:
             build_command: docker buildx build --platform linux/amd64 --cache-from type=gha,scope=engine --cache-to type=gha,mode=max,scope=engine -f Dockerfile .
           - service: engine-nvidia
             build_command: docker buildx build --platform linux/amd64 --cache-from type=gha,scope=engine-nvidia --cache-to type=gha,mode=max,scope=engine-nvidia --build-arg BUILDER_BASE=hexpm/elixir:1.19.5-erlang-28.3.1-ubuntu-noble-20260410 --build-arg XLA_TARGET=cuda12 --build-arg RUNTIME_BASE=nvidia/cuda:12.9.1-devel-ubuntu24.04 -f Dockerfile .
+          - service: engine-amd
+            build_command: docker buildx build --platform linux/amd64 --cache-from type=gha,scope=engine-amd --cache-to type=gha,mode=max,scope=engine-amd --build-arg BUILDER_BASE=hexpm/elixir:1.19.5-erlang-28.3.1-ubuntu-noble-20260410 --build-arg XLA_TARGET=rocm --build-arg XLA_BUILD=true --build-arg RUNTIME_BASE=rocm/dev-ubuntu-24.04:7.2.4-complete -f Dockerfile.rocm .
           - service: engine-match
             build_command: docker buildx build --platform linux/amd64 --cache-from type=gha,scope=engine-match --cache-to type=gha,mode=max,scope=engine-match -f Dockerfile.match .
+
     name: build-${{ matrix.service }}
 
     steps:

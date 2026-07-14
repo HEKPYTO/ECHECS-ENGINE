@@ -25,7 +25,14 @@ defmodule EchecsEngine.MixProject do
       {:jason, "~> 1.4"},
       {:nx, "~> 0.7"},
       {:axon, "~> 0.6"},
-      {:exla, "~> 0.7"}
+      {:exla, "~> 0.7"},
+
+      # Lint & static analysis (dev only)
+      {:credo, "~> 1.7", only: :dev, runtime: false},
+      {:dialyxir, "~> 1.4", only: :dev, runtime: false},
+
+      # Security audit (dev only)
+      {:mix_audit, "~> 0.1", only: :dev, runtime: false}
     ]
   end
 

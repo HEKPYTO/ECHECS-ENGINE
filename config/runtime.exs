@@ -61,8 +61,11 @@ if rocm_target? do
   miopen_db_path = System.get_env("MIOPEN_USER_DB_PATH", "/tmp/miopen_user_db")
 
   case File.mkdir_p(miopen_db_path) do
-    :ok -> :ok
-    {:error, reason} -> IO.warn("Failed to create MIOpen user DB path #{miopen_db_path}: #{inspect(reason)}")
+    :ok ->
+      :ok
+
+    {:error, reason} ->
+      IO.warn("Failed to create MIOpen user DB path #{miopen_db_path}: #{inspect(reason)}")
   end
 
   System.put_env("MIOPEN_USER_DB_PATH", miopen_db_path)
