@@ -48,7 +48,15 @@ defmodule EchecsEngine.Model.ViT do
     policy_head =
       x
       |> Axon.reshape({:batch, 8, 8, embed_dim})
-      |> Axon.conv(73, kernel_size: {1, 1}, padding: :same)
+      # A 1x1 convolution is a per-spatial-position linear projection, so lower
+      # it as a dense (GEMM) over the flattened spatial axis. XLA 0.10.0 segfaults
+      # executing MIOpen convolutions on gfx1201 (RDNA4); rocBLAS GEMM is stable,
+      # so this keeps the policy head on the working GPU path. Revert to
+      # Axon.conv(73, kernel_size: {1, 1}, padding: :same) once xla supports
+      # gfx1201 convolutions.
+      |> Axon.reshape({:batch, 64, embed_dim})
+      |> Axon.dense(73, name: "policy_projection")
+      |> Axon.reshape({:batch, 8, 8, 73})
       |> Axon.batch_norm()
       |> Axon.mish()
       |> Axon.flatten()

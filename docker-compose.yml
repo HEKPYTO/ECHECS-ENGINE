@@ -61,9 +61,11 @@ services:
       - EXLA_MEMORY_FRACTION=0.25
       - ROCM_PATH=/opt/rocm
       - LD_LIBRARY_PATH=/opt/rocm/lib
+      - MIOPEN_USER_DB_PATH=/app/.miopen_cache
     volumes:
       - ./models:/app/models:z
       - ./data:/app/data:z
+      - ./miopen-cache:/app/.miopen_cache:z
     devices:
       - /dev/kfd
       - /dev/dri

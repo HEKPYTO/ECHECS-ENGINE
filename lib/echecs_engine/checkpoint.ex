@@ -6,7 +6,7 @@ defmodule EchecsEngine.Checkpoint do
   alias Axon.Loop.State
 
   @format "echecs-engine-model-state"
-  @model_schema_version 3
+  @model_schema_version 4
   @latest_path "models/echecs_engine_latest.axon"
   @production_path "models/echecs_engine_production.axon"
   @evaluator_path "models/echecs_engine_evaluator.axon"

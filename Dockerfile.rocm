@@ -71,7 +71,9 @@ ENV MIX_ENV=prod \
     LANG=C.UTF-8 \
     XLA_TARGET=${XLA_TARGET} \
     ROCM_PATH=/opt/rocm \
-    LD_LIBRARY_PATH=/opt/rocm/lib
+    LD_LIBRARY_PATH=/opt/rocm/lib \
+    MIOPEN_FIND_MODE=2 \
+    MIOPEN_USER_DB_PATH=/app/.miopen_cache
 
 RUN apt-get update -y && \
     apt-get install -y libstdc++6 openssl ca-certificates bash && \

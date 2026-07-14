@@ -37,3 +37,6 @@ docs/
 
 # Environment variables
 .env
+
+# MIOpen kernel cache (bind-mounted by docker-compose engine-amd)
+/miopen-cache/
