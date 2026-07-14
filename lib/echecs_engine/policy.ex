@@ -28,13 +28,13 @@ defmodule EchecsEngine.Policy do
   ]
   @underpromotion_promotions [:knight, :bishop, :rook]
 
-  @spec move_index(Echecs.Game.t(), Move.t()) :: non_neg_integer()
+  @spec move_index(Echecs.Game.t(), %Move{}) :: non_neg_integer()
   def move_index(game, %Move{} = move) do
     plane = move_plane(game, move)
     move.from * @plane_count + plane
   end
 
-  @spec legal_move_priors(Echecs.Game.t(), [Move.t()], Nx.Tensor.t()) :: [{Move.t(), float()}]
+  @spec legal_move_priors(Echecs.Game.t(), [%Move{}], Nx.Tensor.t()) :: [{%Move{}, float()}]
   def legal_move_priors(game, legal_moves, policy_tensor) do
     logits =
       Enum.map(legal_moves, fn move ->

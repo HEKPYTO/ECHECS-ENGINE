@@ -9,7 +9,7 @@ defmodule EchecsEngine.Search.AlphaBeta do
   @pos_inf 1.0e9
 
   @type stats :: %{
-          best_move: Echecs.Move.t(),
+          best_move: %Echecs.Move{},
           score: float(),
           depth: pos_integer(),
           nodes: pos_integer(),
@@ -75,7 +75,7 @@ defmodule EchecsEngine.Search.AlphaBeta do
     end
   end
 
-  @spec search_best_move(Echecs.Game.t(), keyword()) :: {Echecs.Move.t(), stats()}
+  @spec search_best_move(Echecs.Game.t(), keyword()) :: {%Echecs.Move{}, stats()}
   def search_best_move(game, opts \\ []) do
     result = search(game, opts)
     {result.best_move, result}

@@ -24,7 +24,7 @@ defmodule EchecsEngine.NNUE.Accumulator do
     learned_accumulator(active_features, feature_table)
   end
 
-  @spec update_after_move(Nx.Tensor.t(), Echecs.Game.t(), Echecs.Move.t(), keyword()) ::
+  @spec update_after_move(Nx.Tensor.t(), Echecs.Game.t(), %Echecs.Move{}, keyword()) ::
           Nx.Tensor.t()
   def update_after_move(accumulator, game, move, opts \\ []) do
     feature_table = feature_table!(opts)

@@ -9,7 +9,7 @@ defmodule EchecsEngine.Search.Engine do
   @evaluator_cache_key {__MODULE__, :default_evaluator}
 
   @spec best_move(Echecs.Game.t(), keyword()) ::
-          {:ok, Echecs.Move.t()} | {:terminal, atom()} | {:error, term()}
+          {:ok, %Echecs.Move{}} | {:terminal, atom()} | {:error, term()}
   def best_move(game, opts \\ []) do
     if Echecs.legal_moves(game) == [] do
       {:terminal, Echecs.status(game)}

@@ -21,11 +21,18 @@ defmodule Mix.Tasks.Engine.Uci do
 
   defp read_input(parent) do
     case IO.gets("") do
-      nil ->
+      :eof ->
         send(parent, :uci_eof)
 
-      line ->
+      {:error, _reason} ->
+        send(parent, :uci_eof)
+
+      line when is_binary(line) ->
         send(parent, {:uci_input, line})
+        read_input(parent)
+
+      line ->
+        send(parent, {:uci_input, to_string(line)})
         read_input(parent)
     end
   end
