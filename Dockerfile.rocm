@@ -2,20 +2,17 @@ ARG BUILDER_BASE=hexpm/elixir:1.19.5-erlang-28.3.1-ubuntu-noble-20260410
 ARG RUNTIME_BASE=rocm/dev-ubuntu-24.04:7.2.4-complete
 ARG BAZEL_VERSION=7.7.0
 ARG BAZEL_SHA256=fe7e799cbc9140f986b063e06800a3d4c790525075c877d00a7112669824acbf
-ARG XLA_ARCHIVE_IMAGE=scratch
 
 FROM ${BUILDER_BASE} AS elixir
 
-# This stage is built only by the ROCm XLA archive workflow. XLA has no
-# published ROCm artifact for EXLA, so this is the one place Bazel runs.
-FROM ${RUNTIME_BASE} AS xla-builder
+FROM ${RUNTIME_BASE} AS builder
 
 ARG DEBIAN_FRONTEND=noninteractive
 ARG XLA_TARGET=rocm
 ARG XLA_BUILD=true
 ARG BAZEL_VERSION
 ARG BAZEL_SHA256
-ARG ROCM_AMDGPU_TARGETS=gfx1201
+ARG ROCM_AMDGPU_TARGETS=gfx90a,gfx942,gfx1030,gfx1100,gfx1200,gfx1201
 
 COPY --from=elixir /usr/local/bin /usr/local/bin
 COPY --from=elixir /usr/local/lib/elixir /usr/local/lib/elixir
@@ -53,55 +50,10 @@ RUN mix local.hex --force && \
 
 COPY mix.exs mix.lock ./
 RUN mix deps.get --only $MIX_ENV
-# The literal ${ROCM_AMDGPU_TARGETS} is expanded by the xla Makefile's shell
-# recipe when it invokes Bazel.
+# Scope the XLA ROCm GPU build targets. The literal ${ROCM_AMDGPU_TARGETS} is
+# written here on purpose: it is expanded later by the xla Makefile's shell recipe
+# when it invokes Bazel, where the Docker ARG is available as an environment variable.
 RUN sed -i 's|TF_ROCM_AMDGPU_TARGETS="[^"]*"|TF_ROCM_AMDGPU_TARGETS="${ROCM_AMDGPU_TARGETS}"|' deps/xla/lib/xla.ex
-RUN cd deps/echecs && elixir scripts/generate_magic_cache.exs
-RUN mix deps.compile
-RUN archive="$(find /root/.cache/xla -type f -name 'xla_extension-*.tar.gz' -print -quit)" && \
-    test -n "${archive}" && \
-    install -Dm644 "${archive}" /xla-archive/xla_extension.tar.gz
-
-# The published image contains only the EXLA-compatible XLA archive, not the
-# Bazel checkout or its intermediate outputs.
-FROM scratch AS xla-archive
-COPY --from=xla-builder /xla-archive/ /xla/
-
-FROM ${XLA_ARCHIVE_IMAGE} AS xla-prebuilt
-
-# Normal application builds consume the published archive and never invoke
-# Bazel. This keeps app-only changes fast on developers' machines and CI.
-FROM ${RUNTIME_BASE} AS builder
-
-ARG DEBIAN_FRONTEND=noninteractive
-ARG XLA_TARGET=rocm
-
-COPY --from=elixir /usr/local/bin /usr/local/bin
-COPY --from=elixir /usr/local/lib/elixir /usr/local/lib/elixir
-COPY --from=elixir /usr/local/lib/erlang /usr/local/lib/erlang
-
-ENV MIX_ENV=prod \
-    LANG=C.UTF-8 \
-    XLA_TARGET=${XLA_TARGET} \
-    XLA_ARCHIVE_PATH=/opt/xla/xla_extension.tar.gz \
-    ROCM_PATH=/opt/rocm \
-    LD_LIBRARY_PATH=/opt/rocm/lib \
-    PATH=/opt/rocm/bin:${PATH} \
-    PYTHON_BIN_PATH=/usr/bin/python3
-
-RUN apt-get update -y && \
-    apt-get install -y build-essential git curl python3 python3-numpy python-is-python3 xxd && \
-    apt-get clean && \
-    rm -rf /var/lib/apt/lists/*
-
-WORKDIR /app
-
-RUN mix local.hex --force && \
-    mix local.rebar --force
-
-COPY mix.exs mix.lock ./
-RUN mix deps.get --only $MIX_ENV
-COPY --from=xla-prebuilt /xla/xla_extension.tar.gz /opt/xla/xla_extension.tar.gz
 RUN cd deps/echecs && elixir scripts/generate_magic_cache.exs
 RUN mix deps.compile
 

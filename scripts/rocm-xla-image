@@ -1,6 +1,0 @@
-#!/usr/bin/env sh
-set -eu
-
-input_hash="$({ sha256sum Dockerfile.rocm mix.lock 2>/dev/null || shasum -a 256 Dockerfile.rocm mix.lock; } | { sha256sum 2>/dev/null || shasum -a 256; } | cut -c1-16)"
-
-printf '%s\n' "ghcr.io/hekpyto/echecs-engine/xla-rocm:gfx1201-rocm7.2.4-xla0.10.0-exla0.11.0-${input_hash}"

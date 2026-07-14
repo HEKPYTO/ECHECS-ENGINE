@@ -124,20 +124,9 @@ docker compose up -d engine-nvidia
 **AMD GPU Training (ROCm):**
 
 This path requires a supported AMD GPU, a Linux host with ROCm installed, and Docker access to
-`/dev/kfd` and `/dev/dri`. This image is currently built only for `gfx1201` (the RX 9070 XT),
-not every supported AMD GPU. The `ROCm XLA Archive` GitHub workflow builds the required EXLA XLA
-extension once and publishes an immutable GHCR artifact. Run that workflow manually before the
-first AMD build; subsequent local and CI builds pull the archive instead of compiling XLA with
-Bazel. The GHCR package is private by default: either make it public or authenticate locally with
-`docker login ghcr.io -u <GitHub username>` and a classic personal access token with
-`read:packages`. Before a local build, derive the archive reference from the checked-out Docker
-and dependency inputs:
-
-```bash
-export XLA_ARCHIVE_IMAGE="$(scripts/rocm-xla-image)"
-```
-
-It is intentionally a separate image: it does not change the CPU or NVIDIA CUDA build paths.
+`/dev/kfd` and `/dev/dri`. ROCm AMD support is currently source-build-only: XLA is compiled from
+source during the image build, so a cold build can take substantial time and disk space. It is
+intentionally a separate image: it does not change the CPU or NVIDIA CUDA build paths.
 
 ```bash
 docker compose build engine-amd

@@ -50,7 +50,7 @@ services:
       args:
         BUILDER_BASE: hexpm/elixir:1.19.5-erlang-28.3.1-ubuntu-noble-20260410
         XLA_TARGET: rocm
-        XLA_ARCHIVE_IMAGE: "${XLA_ARCHIVE_IMAGE:?set XLA_ARCHIVE_IMAGE with scripts/rocm-xla-image}"
+        XLA_BUILD: "true"
         RUNTIME_BASE: rocm/dev-ubuntu-24.04:7.2.4-complete
     image: echecs_engine:amd
     environment:
