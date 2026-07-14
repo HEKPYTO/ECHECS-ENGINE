@@ -11,6 +11,7 @@ defmodule EchecsEngine.NNUE.Trainer do
   @accumulator_size 3072
   @hidden_size 32
   @default_feature_row_width 32
+  @default_feature_embedding_size 32
 
   @type artifact :: %{
           feature_table: %{non_neg_integer() => Nx.Tensor.t() | map()},
@@ -27,9 +28,10 @@ defmodule EchecsEngine.NNUE.Trainer do
     validation_selector = validation_selector(paths, opts)
 
     {params, training} = train_sparse_network(paths, validation_selector, opts)
+    feature_row_width = max(Keyword.get(opts, :feature_row_width, @default_feature_row_width), 1)
 
     %{
-      feature_table: params.feature_table,
+      feature_table: export_feature_table(params, feature_row_width),
       w1: params.w1,
       b1: params.b1,
       w2: params.w2,
@@ -165,10 +167,16 @@ defmodule EchecsEngine.NNUE.Trainer do
     learning_rate = Keyword.get(opts, :learning_rate, 0.05)
     l2 = Keyword.get(opts, :l2, 0.0)
     feature_row_width = max(Keyword.get(opts, :feature_row_width, @default_feature_row_width), 1)
+
+    feature_embedding_size =
+      max(Keyword.get(opts, :feature_embedding_size, @default_feature_embedding_size), 1)
+
     feature_init_scale = Keyword.get(opts, :feature_init_scale, 0.05)
+    batch_size = opts |> Keyword.get(:batch_size, 64) |> max(1)
 
     initial_params = %{
-      feature_table: %{},
+      feature_embeddings: %{},
+      projection: initialize_projection(feature_embedding_size),
       w1: initialize_w1(),
       b1: Nx.broadcast(0.0, {@hidden_size}),
       w2: initialize_w2(),
@@ -181,37 +189,53 @@ defmodule EchecsEngine.NNUE.Trainer do
                                                                      validation_losses,
                                                                      train_count,
                                                                      validation_count} ->
-        {updated_params, total_loss, seen_train_count, seen_validation_count} =
+        {updated_params, total_loss, seen_train_count} =
           paths
           |> indexed_examples()
           |> maybe_epoch_order(epoch, opts)
-          |> Enum.reduce({params, 0.0, 0, 0}, fn {index, example},
-                                                 {params_acc, loss_acc, train_acc, validation_acc} ->
-            if validation_member?(validation_selector, index) do
-              {params_acc, loss_acc, train_acc, validation_acc + 1}
-            else
-              {next_params, loss} =
-                train_example(
-                  params_acc,
-                  example,
-                  learning_rate,
-                  l2,
-                  feature_row_width,
-                  feature_init_scale
-                )
+          |> Stream.chunk_every(batch_size)
+          |> Enum.reduce({params, 0.0, 0}, fn batch, {params_acc, loss_acc, train_acc} ->
+            {_validation_batch, training_batch} =
+              Enum.split_with(batch, fn {index, _example} ->
+                validation_member?(validation_selector, index)
+              end)
 
-              {next_params, loss_acc + loss, train_acc + 1, validation_acc}
+            case training_batch do
+              [] ->
+                {params_acc, loss_acc, train_acc}
+
+              training_batch ->
+                {next_params, loss} =
+                  train_batch(
+                    params_acc,
+                    Enum.map(training_batch, &elem(&1, 1)),
+                    learning_rate,
+                    l2,
+                    feature_embedding_size,
+                    feature_init_scale
+                  )
+
+                {
+                  next_params,
+                  loss_acc + loss * length(training_batch),
+                  train_acc + length(training_batch)
+                }
             end
           end)
 
         mean_loss = total_loss / max(seen_train_count, 1)
 
-        validation_loss =
-          if seen_validation_count == 0 do
-            nil
-          else
-            mean_loss(paths, updated_params, validation_selector)
-          end
+        {validation_total_loss, seen_validation_count} =
+          validation_stats(
+            paths,
+            updated_params,
+            validation_selector,
+            batch_size,
+            feature_embedding_size,
+            feature_init_scale
+          )
+
+        validation_loss = validation_mean_loss(validation_total_loss, seen_validation_count)
 
         {
           updated_params,
@@ -227,12 +251,16 @@ defmodule EchecsEngine.NNUE.Trainer do
     end
 
     training = %{
-      algorithm: "online_sgd_sparse_nnue",
+      algorithm: "minibatch_factorized_sparse_nnue",
       epochs: epochs,
+      batch_size: batch_size,
       learning_rate: learning_rate,
       l2: l2,
       corpus_mode: "streaming_sparse_features",
       feature_discovery: "lazy",
+      feature_transform: "factorized_projection",
+      feature_embedding_size: feature_embedding_size,
+      export_row_width: feature_row_width,
       validation_selection: validation_selection_name(validation_selector),
       train_examples: train_count,
       validation_examples: validation_count,
@@ -280,102 +308,163 @@ defmodule EchecsEngine.NNUE.Trainer do
     end)
   end
 
-  defp train_example(
+  defp train_batch(
          params,
-         %{features: features, target: target},
+         examples,
          learning_rate,
          l2,
-         feature_row_width,
+         feature_embedding_size,
          feature_init_scale
        ) do
-    {prediction, cache} = forward(params, features)
-    error = prediction - target
-    dy = Nx.tensor(2.0 * error, type: :f32)
+    batch_count = length(examples)
+
+    {grads, loss_sum} =
+      batch_gradients(params, examples, feature_embedding_size, feature_init_scale)
+
+    updated_params =
+      params
+      |> Map.update!(:w2, &apply_gradient(&1, grads.w2, learning_rate, l2))
+      |> Map.update!(:b2, &apply_gradient(&1, grads.b2, learning_rate, 0.0))
+      |> Map.update!(:w1, &apply_gradient(&1, grads.w1, learning_rate, l2))
+      |> Map.update!(:b1, &apply_gradient(&1, grads.b1, learning_rate, 0.0))
+      |> Map.update!(:projection, &apply_gradient(&1, grads.projection, learning_rate, l2))
+      |> Map.update!(
+        :feature_embeddings,
+        &update_feature_embeddings(
+          &1,
+          grads.feature_embeddings,
+          learning_rate,
+          l2,
+          feature_embedding_size,
+          feature_init_scale
+        )
+      )
+
+    {updated_params, loss_sum / max(batch_count, 1)}
+  end
+
+  defp batch_gradients(params, examples, feature_embedding_size, feature_init_scale) do
+    {outputs, cache} = batch_forward(params, examples, feature_embedding_size, feature_init_scale)
+    targets = Nx.tensor(Enum.map(examples, & &1.target), type: :f32)
+    errors = Nx.subtract(outputs, targets)
+    dy = errors |> Nx.multiply(2.0) |> Nx.divide(length(examples))
 
     grad_w2 =
-      Nx.reshape(cache.hidden, {@hidden_size, 1})
-      |> Nx.multiply(dy)
+      Nx.dot(
+        Nx.transpose(cache.hidden),
+        Nx.reshape(dy, {length(examples), 1})
+      )
 
-    grad_b2 = Nx.reshape(dy, {1})
-    grad_hidden = Nx.squeeze(params.w2) |> Nx.multiply(dy)
+    grad_b2 = Nx.sum(Nx.reshape(dy, {length(examples), 1}), axes: [0])
+
+    grad_hidden =
+      Nx.dot(
+        Nx.reshape(dy, {length(examples), 1}),
+        Nx.transpose(params.w2)
+      )
 
     grad_hidden_pre =
       grad_hidden
       |> Nx.multiply(Nx.multiply(2.0, cache.hidden_clipped))
       |> Nx.multiply(clip_derivative(cache.hidden_pre))
 
-    grad_w1 =
-      Nx.dot(
-        Nx.reshape(cache.acc_squared, {@accumulator_size, 1}),
-        Nx.reshape(grad_hidden_pre, {1, @hidden_size})
-      )
-
-    grad_b1 = grad_hidden_pre
+    grad_w1 = Nx.dot(Nx.transpose(cache.acc_squared), grad_hidden_pre)
+    grad_b1 = Nx.sum(grad_hidden_pre, axes: [0])
 
     grad_acc =
       Nx.dot(grad_hidden_pre, Nx.transpose(params.w1))
       |> Nx.multiply(Nx.multiply(2.0, cache.acc_clipped))
-      |> Nx.multiply(clip_derivative(cache.accumulator))
+      |> Nx.multiply(clip_derivative(cache.accumulators))
 
-    updated_params =
-      params
-      |> Map.update!(:w2, &apply_gradient(&1, grad_w2, learning_rate, l2))
-      |> Map.update!(:b2, &apply_gradient(&1, grad_b2, learning_rate, 0.0))
-      |> Map.update!(:w1, &apply_gradient(&1, grad_w1, learning_rate, l2))
-      |> Map.update!(:b1, &apply_gradient(&1, grad_b1, learning_rate, 0.0))
-      |> Map.update!(
-        :feature_table,
-        &update_feature_rows(
-          &1,
-          features,
-          grad_acc,
-          learning_rate,
-          l2,
-          feature_row_width,
-          feature_init_scale
-        )
-      )
+    grad_projection = Nx.dot(Nx.transpose(cache.summed_embeddings), grad_acc)
+    grad_feature_embeddings = Nx.dot(grad_acc, Nx.transpose(params.projection))
 
-    {updated_params, error * error}
-  end
+    feature_embedding_grads =
+      Enum.zip(cache.examples, grad_feature_embeddings |> Nx.to_batched(1) |> Enum.to_list())
+      |> Enum.reduce(%{}, fn {%{features: features}, grad_batch}, acc ->
+        grad_embedding = Nx.squeeze(grad_batch, axes: [0])
 
-  defp mean_loss(paths, params, validation_selector) do
-    {loss, count} =
-      paths
-      |> indexed_examples()
-      |> Stream.filter(fn {index, _example} -> validation_member?(validation_selector, index) end)
-      |> Enum.reduce({0.0, 0}, fn {_index, %{features: features, target: target}}, {acc, count} ->
-        error = predict(params, features) - target
-        {acc + error * error, count + 1}
+        Enum.reduce(features, acc, fn feature_idx, table_acc ->
+          Map.update(table_acc, feature_idx, grad_embedding, &Nx.add(&1, grad_embedding))
+        end)
       end)
 
-    loss / max(count, 1)
+    {%{
+       w1: grad_w1,
+       b1: grad_b1,
+       w2: grad_w2,
+       b2: grad_b2,
+       projection: grad_projection,
+       feature_embeddings: feature_embedding_grads
+     }, Nx.sum(Nx.multiply(errors, errors)) |> Nx.to_number()}
   end
 
-  defp predict(params, features) do
-    params
-    |> forward(features)
-    |> elem(0)
+  defp validation_mean_loss(_total_loss, 0), do: nil
+  defp validation_mean_loss(total_loss, count), do: total_loss / count
+
+  defp validation_stats(
+         paths,
+         params,
+         validation_selector,
+         batch_size,
+         feature_embedding_size,
+         feature_init_scale
+       ) do
+    paths
+    |> indexed_examples()
+    |> Stream.filter(fn {index, _example} -> validation_member?(validation_selector, index) end)
+    |> Stream.map(&elem(&1, 1))
+    |> Stream.chunk_every(batch_size)
+    |> Enum.reduce({0.0, 0}, fn examples, {loss_acc, count_acc} ->
+      {loss, count} = batch_loss(examples, params, feature_embedding_size, feature_init_scale)
+      {loss_acc + loss, count_acc + count}
+    end)
   end
 
-  defp forward(params, features) do
-    accumulator = accumulator_from_features(params.feature_table, features)
-    acc_clipped = Nx.clip(accumulator, 0.0, 1.0)
+  defp batch_loss(examples, params, feature_embedding_size, feature_init_scale) do
+    {outputs, _cache} =
+      batch_forward(params, examples, feature_embedding_size, feature_init_scale)
+
+    targets = Nx.tensor(Enum.map(examples, & &1.target), type: :f32)
+    errors = Nx.subtract(outputs, targets)
+
+    {
+      Nx.sum(Nx.multiply(errors, errors)) |> Nx.to_number(),
+      length(examples)
+    }
+  end
+
+  defp batch_forward(params, examples, feature_embedding_size, feature_init_scale) do
+    summed_embeddings =
+      examples
+      |> Enum.map(fn %{features: features} ->
+        summed_embedding(
+          params.feature_embeddings,
+          features,
+          feature_embedding_size,
+          feature_init_scale
+        )
+      end)
+      |> stack_embeddings(feature_embedding_size)
+
+    accumulators = Nx.dot(summed_embeddings, params.projection)
+    acc_clipped = Nx.clip(accumulators, 0.0, 1.0)
     acc_squared = Nx.multiply(acc_clipped, acc_clipped)
     hidden_pre = Nx.dot(acc_squared, params.w1) |> Nx.add(params.b1)
     hidden_clipped = Nx.clip(hidden_pre, 0.0, 1.0)
     hidden = Nx.multiply(hidden_clipped, hidden_clipped)
 
-    output =
+    outputs =
       hidden
       |> Nx.dot(params.w2)
       |> Nx.add(params.b2)
-      |> Nx.squeeze()
-      |> Nx.to_number()
+      |> Nx.reshape({length(examples)})
 
-    {output,
+    {outputs,
      %{
-       accumulator: accumulator,
+       examples: examples,
+       summed_embeddings: summed_embeddings,
+       accumulators: accumulators,
        acc_clipped: acc_clipped,
        acc_squared: acc_squared,
        hidden_pre: hidden_pre,
@@ -384,46 +473,22 @@ defmodule EchecsEngine.NNUE.Trainer do
      }}
   end
 
-  defp accumulator_from_features(feature_table, features) do
-    Enum.reduce(features, Nx.broadcast(0.0, {@accumulator_size}), fn feature_idx, acc ->
-      case Map.get(feature_table, feature_idx) do
-        nil -> acc
-        %{indices: indices, values: values} -> add_sparse(acc, indices, values)
-        %Nx.Tensor{} = row -> Nx.add(acc, row)
-      end
-    end)
-  end
-
-  defp add_sparse(accumulator, indices, values) do
-    Enum.zip(indices, values)
-    |> Enum.reduce(accumulator, fn {index, value}, acc ->
-      current =
-        acc
-        |> Nx.slice([index], [1])
-        |> Nx.add(Nx.tensor([value], type: :f32))
-
-      Nx.put_slice(acc, [index], current)
-    end)
-  end
-
-  defp update_feature_rows(
-         feature_table,
-         features,
-         grad_acc,
+  defp update_feature_embeddings(
+         feature_embeddings,
+         embedding_grads,
          learning_rate,
          l2,
-         feature_row_width,
+         feature_embedding_size,
          feature_init_scale
        ) do
-    Enum.reduce(features, feature_table, fn feature_idx, table_acc ->
-      updated_row =
+    Enum.reduce(embedding_grads, feature_embeddings, fn {feature_idx, grad_embedding},
+                                                        table_acc ->
+      updated_embedding =
         table_acc
-        |> Map.get(feature_idx, feature_row(feature_idx, feature_row_width, feature_init_scale))
-        |> dense_feature_row()
-        |> apply_gradient(grad_acc, learning_rate, l2)
-        |> compress_feature_row(feature_row_width)
+        |> feature_embedding(feature_idx, feature_embedding_size, feature_init_scale)
+        |> apply_gradient(grad_embedding, learning_rate, l2)
 
-      Map.put(table_acc, feature_idx, updated_row)
+      Map.put(table_acc, feature_idx, updated_embedding)
     end)
   end
 
@@ -445,30 +510,17 @@ defmodule EchecsEngine.NNUE.Trainer do
     |> Nx.as_type(:f32)
   end
 
-  defp feature_row(feature_idx, row_width, scale) do
-    slots =
-      0..(@accumulator_size - 1)
-      |> Enum.map(fn slot ->
-        score = :erlang.phash2({:feature_slot, feature_idx, slot}, 1_000_000)
-        {score, slot}
-      end)
-      |> Enum.sort(:desc)
-      |> Enum.take(row_width)
-      |> Enum.map(&elem(&1, 1))
-      |> Enum.sort()
-
-    values =
-      Enum.map(slots, fn slot ->
-        (:erlang.phash2({:feature_value, feature_idx, slot}, 2001) - 1000) / 1000.0 * scale
-      end)
-
-    %{indices: slots, values: values}
+  defp feature_embedding(feature_embeddings, feature_idx, embedding_size, scale) do
+    Map.get(feature_embeddings, feature_idx) ||
+      initialize_feature_embedding(feature_idx, embedding_size, scale)
   end
 
-  defp dense_feature_row(%Nx.Tensor{} = row), do: row
-
-  defp dense_feature_row(%{indices: indices, values: values}) do
-    add_sparse(Nx.broadcast(0.0, {@accumulator_size}), indices, values)
+  defp initialize_feature_embedding(feature_idx, embedding_size, scale) do
+    0..(embedding_size - 1)
+    |> Enum.map(fn dim ->
+      (:erlang.phash2({:feature_embedding, feature_idx, dim}, 2001) - 1000) / 1000.0 * scale
+    end)
+    |> Nx.tensor(type: :f32)
   end
 
   defp compress_feature_row(%Nx.Tensor{} = row, row_width) do
@@ -485,6 +537,38 @@ defmodule EchecsEngine.NNUE.Trainer do
       indices: Enum.map(entries, &elem(&1, 1)),
       values: Enum.map(entries, &elem(&1, 0))
     }
+  end
+
+  defp summed_embedding(feature_embeddings, features, embedding_size, scale) do
+    features
+    |> Enum.map(&feature_embedding(feature_embeddings, &1, embedding_size, scale))
+    |> stack_embeddings(embedding_size)
+    |> Nx.sum(axes: [0])
+  end
+
+  defp stack_embeddings([], embedding_size), do: Nx.broadcast(0.0, {0, embedding_size})
+  defp stack_embeddings(embeddings, _embedding_size), do: Nx.stack(embeddings)
+
+  defp export_feature_table(params, row_width) do
+    Enum.into(params.feature_embeddings, %{}, fn {feature_idx, embedding} ->
+      contribution =
+        embedding
+        |> Nx.dot(params.projection)
+        |> compress_feature_row(row_width)
+
+      {feature_idx, contribution}
+    end)
+  end
+
+  defp initialize_projection(feature_embedding_size) do
+    0..(feature_embedding_size - 1)
+    |> Enum.map(fn row ->
+      0..(@accumulator_size - 1)
+      |> Enum.map(fn col ->
+        (:erlang.phash2({:projection, row, col}, 2001) - 1000) / 1000.0 * 0.01
+      end)
+    end)
+    |> Nx.tensor(type: :f32)
   end
 
   defp initialize_w1 do

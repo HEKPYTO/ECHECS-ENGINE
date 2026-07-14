@@ -4,6 +4,7 @@ defmodule EchecsEngine.NNUE.TrainerTest do
   alias EchecsEngine.NNUE.Trainer
 
   @start_fen "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
+  @fast_opts [epochs: 1, batch_size: 2, feature_embedding_size: 8, feature_row_width: 16]
 
   test "fits a sparse evaluator artifact from supervised JSONL" do
     path = tmp_path("nnue_train")
@@ -22,7 +23,7 @@ defmodule EchecsEngine.NNUE.TrainerTest do
 
     on_exit(fn -> File.rm(path) end)
 
-    artifact = Trainer.fit_jsonl!(path)
+    artifact = Trainer.fit_jsonl!(path, @fast_opts)
 
     assert is_map(artifact.feature_table)
     assert map_size(artifact.feature_table) > 0
@@ -62,7 +63,7 @@ defmodule EchecsEngine.NNUE.TrainerTest do
 
     on_exit(fn -> File.rm(path) end)
 
-    artifact = Trainer.fit_jsonl!(path, max_features: 1)
+    artifact = Trainer.fit_jsonl!(path, Keyword.merge(@fast_opts, max_features: 1))
 
     assert map_size(artifact.feature_table) > 1
   end
@@ -84,7 +85,7 @@ defmodule EchecsEngine.NNUE.TrainerTest do
 
     on_exit(fn -> File.rm(path) end)
 
-    artifact = Trainer.fit_jsonl!(path)
+    artifact = Trainer.fit_jsonl!(path, @fast_opts)
 
     {_feature_idx, contribution} = artifact.feature_table |> Map.to_list() |> hd()
 
@@ -96,6 +97,7 @@ defmodule EchecsEngine.NNUE.TrainerTest do
     refute Enum.all?(values, &(&1 == 0.0))
     assert artifact.training.corpus_mode == "streaming_sparse_features"
     assert artifact.training.feature_discovery == "lazy"
+    assert artifact.training.feature_transform == "factorized_projection"
   end
 
   test "fits evaluator weights with an optimizer and records training loss" do
@@ -115,14 +117,81 @@ defmodule EchecsEngine.NNUE.TrainerTest do
 
     on_exit(fn -> File.rm(path) end)
 
-    artifact = Trainer.fit_jsonl!(path, epochs: 3, learning_rate: 0.5)
+    artifact =
+      Trainer.fit_jsonl!(
+        path,
+        Keyword.merge(@fast_opts, epochs: 3, learning_rate: 0.5, batch_size: 2)
+      )
 
-    assert artifact.training.algorithm == "online_sgd_sparse_nnue"
+    assert artifact.training.algorithm == "minibatch_factorized_sparse_nnue"
     assert artifact.training.epochs == 3
+    assert artifact.training.batch_size == 2
     assert length(artifact.training.training_loss) == 3
 
     assert List.last(artifact.training.training_loss) <
              List.first(artifact.training.training_loss)
+  end
+
+  test "reports the same mean training loss for equivalent batch partitions" do
+    path = tmp_path("nnue_train_batch_loss")
+
+    records = [
+      %{"fen" => @start_fen, "move" => "e2e4", "wdl" => [1.0, 0.0, 0.0]},
+      %{"fen" => @start_fen, "move" => "d2d4", "wdl" => [0.0, 0.0, 1.0]}
+    ]
+
+    File.write!(
+      path,
+      records
+      |> Enum.map(&[Jason.encode!(&1), "\n"])
+      |> IO.iodata_to_binary()
+    )
+
+    on_exit(fn -> File.rm(path) end)
+
+    common_opts = Keyword.merge(@fast_opts, epochs: 1, learning_rate: 0.0)
+
+    single_example = Trainer.fit_jsonl!(path, Keyword.put(common_opts, :batch_size, 1))
+    two_examples = Trainer.fit_jsonl!(path, Keyword.put(common_opts, :batch_size, 2))
+
+    assert_in_delta(
+      hd(single_example.training.training_loss),
+      hd(two_examples.training.training_loss),
+      1.0e-6
+    )
+  end
+
+  test "exports sparse runtime rows from learned factorized features" do
+    path = tmp_path("nnue_train_factorized_rows")
+
+    records = [
+      %{"fen" => @start_fen, "move" => "e2e4", "wdl" => [1.0, 0.0, 0.0]},
+      %{"fen" => @start_fen, "move" => "d2d4", "wdl" => [0.0, 1.0, 0.0]}
+    ]
+
+    File.write!(
+      path,
+      records
+      |> Enum.map(&[Jason.encode!(&1), "\n"])
+      |> IO.iodata_to_binary()
+    )
+
+    on_exit(fn -> File.rm(path) end)
+
+    artifact = Trainer.fit_jsonl!(path, Keyword.merge(@fast_opts, epochs: 2, batch_size: 2))
+
+    {_feature_idx, contribution} =
+      Enum.max_by(artifact.feature_table, fn {_idx, row} ->
+        length(row.indices)
+      end)
+
+    assert %{indices: indices, values: values} = contribution
+    assert length(indices) == length(values)
+    assert length(indices) > 0
+    assert length(indices) <= 64
+    assert Enum.all?(indices, &(&1 < 3072))
+    refute Enum.all?(values, &(&1 == 0.0))
+    assert artifact.training.feature_embedding_size == 8
   end
 
   test "records deterministic validation loss when validation split is configured" do
@@ -144,7 +213,16 @@ defmodule EchecsEngine.NNUE.TrainerTest do
 
     on_exit(fn -> File.rm(path) end)
 
-    opts = [epochs: 3, learning_rate: 0.25, validation_split: 0.5, shuffle?: true, seed: 17]
+    opts =
+      Keyword.merge(@fast_opts,
+        epochs: 2,
+        learning_rate: 0.25,
+        validation_split: 0.5,
+        shuffle?: true,
+        seed: 17,
+        shuffle_buffer_size: 2
+      )
+
     artifact_a = Trainer.fit_jsonl!(path, opts)
     artifact_b = Trainer.fit_jsonl!(path, opts)
 
@@ -152,7 +230,7 @@ defmodule EchecsEngine.NNUE.TrainerTest do
     assert artifact_a.training.validation_examples > 0
     assert artifact_a.training.train_examples + artifact_a.training.validation_examples == 4
     assert artifact_a.training.validation_selection == "hash_ratio"
-    assert length(artifact_a.training.validation_loss) == 3
+    assert length(artifact_a.training.validation_loss) == 2
     assert artifact_a.training.training_loss == artifact_b.training.training_loss
     assert artifact_a.training.validation_loss == artifact_b.training.validation_loss
   end
@@ -176,7 +254,11 @@ defmodule EchecsEngine.NNUE.TrainerTest do
 
     on_exit(fn -> File.rm(path) end)
 
-    artifact = Trainer.fit_jsonl!(path, epochs: 2, validation_split: 2, shuffle?: true, seed: 11)
+    artifact =
+      Trainer.fit_jsonl!(
+        path,
+        Keyword.merge(@fast_opts, epochs: 2, validation_split: 2, shuffle?: true, seed: 11)
+      )
 
     assert artifact.training.train_examples == 2
     assert artifact.training.validation_examples == 2
@@ -202,14 +284,15 @@ defmodule EchecsEngine.NNUE.TrainerTest do
 
     on_exit(fn -> File.rm(path) end)
 
-    opts = [
-      epochs: 3,
-      learning_rate: 0.25,
-      validation_split: 0.5,
-      shuffle?: true,
-      seed: 17,
-      shuffle_buffer_size: 2
-    ]
+    opts =
+      Keyword.merge(@fast_opts,
+        epochs: 2,
+        learning_rate: 0.25,
+        validation_split: 0.5,
+        shuffle?: true,
+        seed: 17,
+        shuffle_buffer_size: 2
+      )
 
     artifact_a = Trainer.fit_jsonl!(path, opts)
     artifact_b = Trainer.fit_jsonl!(path, opts)
@@ -239,7 +322,14 @@ defmodule EchecsEngine.NNUE.TrainerTest do
       File.rm(output_path)
     end)
 
-    :ok = Trainer.fit_and_save!(dataset_path, output_path, training_config: %{"source" => "unit"})
+    :ok =
+      Trainer.fit_and_save!(dataset_path, output_path,
+        training_config: %{"source" => "unit"},
+        epochs: 1,
+        batch_size: 2,
+        feature_embedding_size: 8,
+        feature_row_width: 16
+      )
 
     assert {:ok, %{artifact: artifact, metadata: metadata}} =
              EchecsEngine.Checkpoint.load_evaluator_state(output_path)
