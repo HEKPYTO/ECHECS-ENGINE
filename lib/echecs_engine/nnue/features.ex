@@ -32,7 +32,7 @@ defmodule EchecsEngine.NNUE.Features do
     }
   end
 
-  @spec delta_indices(Echecs.Game.t(), Echecs.Game.t()) :: delta_indices()
+  @spec delta_indices(Echecs.Game.t(), Echecs.Game.t() | %Echecs.Move{}) :: delta_indices()
   def delta_indices(%Echecs.Game{} = before, %Echecs.Game{} = after_game) do
     before_set = active_indices(before) |> flatten_feature_set()
     after_set = active_indices(after_game) |> flatten_feature_set()
