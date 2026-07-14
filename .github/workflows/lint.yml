@@ -18,7 +18,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Set up Elixir
         uses: erlef/setup-beam@v1
@@ -27,7 +27,7 @@ jobs:
           otp-version: '28.3.1'
 
       - name: Restore mix cache
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: |
             deps
@@ -37,7 +37,7 @@ jobs:
             ${{ runner.os }}-mix-
 
       - name: Restore PLT cache
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: priv/plts
           key: ${{ runner.os }}-plt-${{ hashFiles('**/mix.lock') }}
