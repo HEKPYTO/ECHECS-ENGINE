@@ -58,8 +58,7 @@ defmodule EchecsEngine.MCTS do
   def best_move(%Node{children: children}) when map_size(children) > 0 do
     children
     |> Enum.max_by(fn {_move, child} ->
-      {child.visits, if(child.visits == 0, do: 0.0, else: child.total_value / child.visits),
-       child.prior_prob}
+      {child.visits, Node.value_from_parent_perspective(child), child.prior_prob}
     end)
     |> elem(0)
   end
@@ -85,15 +84,15 @@ defmodule EchecsEngine.MCTS do
     {best_move, best_child} = select_child(node, opts)
     {updated_child, value} = simulate(best_child, opts)
 
-    updated_children = Map.put(children, best_move, updated_child)
+    updated_children = Map.replace!(children, best_move, updated_child)
     updated_node = %{node | children: updated_children}
 
     {update_node(updated_node, -value), -value}
   end
 
   @doc false
-  defp select_child(%Node{children: children, visits: parent_visits}, opts) do
-    parent_q = parent_q(children)
+  defp select_child(%Node{children: children, visits: parent_visits} = node, opts) do
+    parent_q = node_value(node)
     c_puct = Keyword.get(opts, :c_puct, @c_puct)
     fpu_reduction = Keyword.get(opts, :fpu_reduction, @fpu_reduction)
 
@@ -110,7 +109,13 @@ defmodule EchecsEngine.MCTS do
          c_puct,
          fpu_reduction
        ) do
-    q_value = if visits == 0, do: parent_q - fpu_reduction, else: total_value / visits
+    q_value =
+      if visits == 0 do
+        parent_q - fpu_reduction
+      else
+        Node.value_from_parent_perspective(%Node{visits: visits, total_value: total_value})
+      end
+
     u_value = c_puct * prior * :math.sqrt(max(parent_visits, 1)) / (1 + visits)
     q_value + u_value
   end
@@ -164,7 +169,7 @@ defmodule EchecsEngine.MCTS do
   defp ensure_tt(opts) do
     case Keyword.get(opts, :tt) do
       nil -> {Keyword.put(opts, :tt, :ets.new(__MODULE__, [:set, :private])), true}
-      tt -> {opts, tt != nil and false}
+      _tt -> {opts, false}
     end
   end
 
@@ -300,14 +305,8 @@ defmodule EchecsEngine.MCTS do
     %{node | visits: visits + 1, total_value: total + value}
   end
 
-  defp parent_q(children) do
-    {total_value, total_visits} =
-      Enum.reduce(children, {0.0, 0}, fn {_move, child}, {value_acc, visit_acc} ->
-        {value_acc + child.total_value, visit_acc + child.visits}
-      end)
-
-    if total_visits == 0, do: 0.0, else: total_value / total_visits
-  end
+  defp node_value(%Node{visits: 0}), do: 0.0
+  defp node_value(%Node{visits: visits, total_value: total_value}), do: total_value / visits
 
   defp do_principal_variation(%Node{children: children}, _remaining, acc)
        when map_size(children) == 0,
@@ -316,8 +315,7 @@ defmodule EchecsEngine.MCTS do
   defp do_principal_variation(%Node{children: children}, remaining, acc) do
     {move, child} =
       Enum.max_by(children, fn {_move, child} ->
-        {child.visits, if(child.visits == 0, do: 0.0, else: child.total_value / child.visits),
-         child.prior_prob}
+        {child.visits, Node.value_from_parent_perspective(child), child.prior_prob}
       end)
 
     if remaining == 1 do

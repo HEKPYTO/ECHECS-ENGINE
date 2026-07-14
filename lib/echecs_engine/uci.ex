@@ -224,8 +224,6 @@ defmodule EchecsEngine.UCI do
     end
   end
 
-  defp drop_task_down(nil), do: :ok
-
   defp drop_task_down(task) do
     receive do
       {:DOWN, ref, :process, _pid, _reason} when ref == task.ref -> :ok

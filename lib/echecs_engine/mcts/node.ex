@@ -22,4 +22,11 @@ defmodule EchecsEngine.MCTS.Node do
           prior_prob: float(),
           children: %{any() => t()}
         }
+
+  @spec value_from_parent_perspective(t()) :: float()
+  def value_from_parent_perspective(%__MODULE__{visits: 0}), do: 0.0
+
+  def value_from_parent_perspective(%__MODULE__{visits: visits, total_value: total_value}) do
+    -total_value / visits
+  end
 end

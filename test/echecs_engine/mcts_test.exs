@@ -73,6 +73,46 @@ defmodule EchecsEngine.MCTSTest do
     assert MCTS.best_move(root) == target_move
   end
 
+  test "best_move/1 breaks equal visit counts from the root perspective" do
+    game = Echecs.new_game()
+    legal_moves = Echecs.legal_moves(game)
+    winning_move = Enum.find(legal_moves, &(&1.from == 52 and &1.to == 36))
+    losing_move = Enum.find(legal_moves, &(&1.from == 51 and &1.to == 35))
+
+    root = %Node{
+      game: game,
+      children: %{
+        winning_move => %Node{game: game, visits: 4, total_value: -3.0},
+        losing_move => %Node{game: game, visits: 4, total_value: 3.0}
+      }
+    }
+
+    assert MCTS.best_move(root) == winning_move
+  end
+
+  test "principal_variation/2 breaks equal visit counts from each parent perspective" do
+    game = Echecs.new_game()
+    legal_moves = Echecs.legal_moves(game)
+    winning_move = Enum.find(legal_moves, &(&1.from == 52 and &1.to == 36))
+    losing_move = Enum.find(legal_moves, &(&1.from == 51 and &1.to == 35))
+
+    root = %Node{
+      game: game,
+      children: %{
+        winning_move => %Node{game: game, visits: 4, total_value: -3.0},
+        losing_move => %Node{game: game, visits: 4, total_value: 3.0}
+      }
+    }
+
+    assert MCTS.principal_variation(root, 1) == [winning_move]
+  end
+
+  test "converts a child value into its parent's perspective" do
+    child = %Node{visits: 2, total_value: 1.5}
+
+    assert Node.value_from_parent_perspective(child) == -0.75
+  end
+
   test "search_best_move/3 returns the visit-count selected move" do
     game = Echecs.new_game()
     legal_moves = Echecs.legal_moves(game)
