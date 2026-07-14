@@ -18,7 +18,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v4
 
       - name: Set up Elixir
         uses: erlef/setup-beam@v1
@@ -36,6 +36,14 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-mix-
 
+      - name: Restore PLT cache
+        uses: actions/cache@v4
+        with:
+          path: priv/plts
+          key: ${{ runner.os }}-plt-${{ hashFiles('**/mix.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-plt-
+
       - name: Install deps
         run: mix deps.get
 
@@ -44,6 +52,9 @@ jobs:
 
       - name: Compile with warnings as errors
         run: mix compile --warnings-as-errors
+
+      - name: Run Dialyzer
+        run: mix dialyzer --format github
 
       - name: Run tests
         run: mix test

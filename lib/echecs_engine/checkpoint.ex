@@ -75,7 +75,10 @@ defmodule EchecsEngine.Checkpoint do
     {:error, {:incompatible_schema, version, @model_schema_version}}
   end
 
-  defp validate_schema_compatibility(_metadata), do: :ok
+  defp validate_schema_compatibility(%{model_schema_version: _version}), do: :ok
+
+  defp validate_schema_compatibility(_metadata),
+    do: {:error, {:incompatible_schema, :missing, @model_schema_version}}
 
   @spec load_model_checkpoint(String.t()) ::
           {:ok, %{model_state: map(), metadata: map()}} | {:error, term()}

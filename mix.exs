@@ -8,6 +8,10 @@ defmodule EchecsEngine.MixProject do
       elixir: "~> 1.19",
       elixirc_options: [warnings_as_errors: true],
       start_permanent: Mix.env() == :prod,
+      dialyzer: [
+        plt_file: {:no_warn, "priv/plts/project.plt"},
+        plt_add_apps: [:mix]
+      ],
       deps: deps()
     ]
   end
@@ -32,7 +36,7 @@ defmodule EchecsEngine.MixProject do
       {:dialyxir, "~> 1.4", only: :dev, runtime: false},
 
       # Security audit (dev only)
-      {:mix_audit, "~> 0.1", only: :dev, runtime: false}
+      {:mix_audit, "~> 2.0", only: [:dev, :test], runtime: false}
     ]
   end
 

@@ -24,7 +24,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v4
 
       - name: Initialize CodeQL
         uses: github/codeql-action/init@v3
@@ -44,7 +44,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v4
 
       - name: Set up Elixir
         uses: erlef/setup-beam@v1
@@ -64,9 +64,10 @@ jobs:
 
       - name: Install deps
         run: mix deps.get
-
-      - name: Add mix_audit for dependency vulnerability scanning
-        run: mix archive.install hex mix_audit --force
+        env:
+          MIX_ENV: dev
 
       - name: Audit dependencies
         run: mix deps.audit --exit-status
+        env:
+          MIX_ENV: dev

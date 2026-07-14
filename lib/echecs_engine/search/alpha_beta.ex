@@ -383,7 +383,9 @@ defmodule EchecsEngine.Search.AlphaBeta do
       depth < 3 ->
         nil
 
-      ply <= 0 ->
+      # ply is always >= 1 when called from root children; this guard is
+      # retained as a safety net for any future refactor that changes call sites
+      ply < 1 ->
         nil
 
       Echecs.Game.in_check?(game) ->

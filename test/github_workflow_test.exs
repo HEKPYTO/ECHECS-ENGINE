@@ -26,7 +26,7 @@ defmodule EchecsEngine.GitHubWorkflowTest do
     assert workflow =~ "--cache-to type=gha,mode=max,scope=engine-nvidia"
     assert workflow =~ "--cache-to type=gha,mode=max,scope=engine-match"
     assert workflow =~ "Free disk space for NVIDIA build"
-    assert workflow =~ "actions/checkout@v6"
+    assert workflow =~ "actions/checkout@v4"
     assert workflow =~ "docker/setup-buildx-action@v4"
     refute workflow =~ "docker compose build engine-nvidia"
     refute workflow =~ "docker compose build engine"
