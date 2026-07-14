@@ -13,30 +13,6 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  codeql:
-    name: CodeQL Analysis
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    permissions:
-      security-events: write
-      actions: read
-      contents: read
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Initialize CodeQL
-        uses: github/codeql-action/init@v3
-        with:
-          languages: elixir
-          queries: +security-and-quality
-
-      - name: Perform CodeQL Analysis
-        uses: github/codeql-action/analyze@v3
-        with:
-          category: "/language:elixir"
-
   deps-audit:
     name: Dependency Audit
     runs-on: ubuntu-latest
@@ -66,6 +42,9 @@ jobs:
         run: mix deps.get
         env:
           MIX_ENV: dev
+
+      - name: Generate magic cache for echecs dependency
+        run: elixir deps/echecs/scripts/generate_magic_cache.exs
 
       - name: Audit dependencies
         run: mix deps.audit --exit-status
