@@ -10,7 +10,8 @@ defmodule EchecsEngine.MixProject do
       start_permanent: Mix.env() == :prod,
       dialyzer: [
         plt_file: {:no_warn, "priv/plts/project.plt"},
-        plt_add_apps: [:mix]
+        plt_add_apps: [:mix],
+        ignore_warnings: ".dialyzer_ignore.exs"
       ],
       deps: deps()
     ]

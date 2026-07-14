@@ -3,7 +3,8 @@ defmodule EchecsEngine.Checkpoint do
   Utilities for loading and saving model and training checkpoints.
   """
 
-  alias Axon.Loop.State
+  # Axon.Loop.State does not export a public type; use struct() for specs
+  @type axon_loop_state :: struct()
 
   @format "echecs-engine-model-state"
   @model_schema_version 4
@@ -102,7 +103,7 @@ defmodule EchecsEngine.Checkpoint do
     File.write!(path, :erlang.term_to_binary(checkpoint))
   end
 
-  @spec load_training_state(String.t()) :: {:ok, State.t()} | {:error, term()}
+  @spec load_training_state(String.t()) :: {:ok, axon_loop_state()} | {:error, term()}
   def load_training_state(path) do
     with {:ok, %{state: state}} <- load_training_checkpoint(path) do
       {:ok, state}
@@ -110,15 +111,15 @@ defmodule EchecsEngine.Checkpoint do
   end
 
   @spec load_training_checkpoint(String.t()) ::
-          {:ok, %{state: State.t(), metadata: map()}} | {:error, term()}
+          {:ok, %{state: axon_loop_state(), metadata: map()}} | {:error, term()}
   def load_training_checkpoint(path) do
     with {:ok, binary} <- File.read(path) do
       decode_training_checkpoint(binary)
     end
   end
 
-  @spec save_training_state!(String.t(), State.t(), map()) :: :ok
-  def save_training_state!(path, %State{} = state, training_config \\ %{}) do
+  @spec save_training_state!(String.t(), axon_loop_state(), map()) :: :ok
+  def save_training_state!(path, %Axon.Loop.State{} = state, training_config \\ %{}) do
     path
     |> Path.dirname()
     |> File.mkdir_p!()
@@ -131,7 +132,7 @@ defmodule EchecsEngine.Checkpoint do
     File.write!(path, :erlang.term_to_binary(checkpoint))
   end
 
-  @spec load_evaluator_state(String.t()) ::
+  @spec load_evaluator_state(String.t() | [String.t()]) ::
           {:ok, %{artifact: map(), metadata: map()}} | {:error, term()}
   def load_evaluator_state(paths) when is_list(paths) do
     Enum.reduce_while(paths, {:error, :enoent}, fn path, _acc ->
@@ -179,7 +180,8 @@ defmodule EchecsEngine.Checkpoint do
 
   defp decode_model_checkpoint(binary) do
     case decode_training_checkpoint(binary) do
-      {:ok, %{state: %State{step_state: %{model_state: model_state}}, metadata: metadata}} ->
+      {:ok,
+       %{state: %Axon.Loop.State{step_state: %{model_state: model_state}}, metadata: metadata}} ->
         {:ok, %{model_state: model_state, metadata: metadata}}
 
       {:error, _reason} ->

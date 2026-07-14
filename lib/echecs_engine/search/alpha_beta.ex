@@ -171,10 +171,9 @@ defmodule EchecsEngine.Search.AlphaBeta do
   defp aspiration_bounds(_depth, nil, _opts), do: nil
 
   defp aspiration_bounds(depth, best, opts) do
-    if Keyword.get(opts, :aspiration_window, 0.25) == false do
-      nil
-    else
-      do_aspiration_bounds(depth, best, opts)
+    case Keyword.get(opts, :aspiration_window, 0.25) do
+      false -> nil
+      _ -> do_aspiration_bounds(depth, best, opts)
     end
   end
 
@@ -183,7 +182,7 @@ defmodule EchecsEngine.Search.AlphaBeta do
       window when is_number(window) and window > 0 ->
         {score - window, score + window}
 
-      _other ->
+      _ ->
         nil
     end
   end
@@ -377,7 +376,7 @@ defmodule EchecsEngine.Search.AlphaBeta do
       not allow_null? ->
         nil
 
-      Keyword.get(opts, :null_move_pruning, true) == false ->
+      Keyword.get(opts, :null_move_pruning, true) != true ->
         nil
 
       depth < 3 ->
