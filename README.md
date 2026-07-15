@@ -1,6 +1,30 @@
 # ECHECS-ENGINE
 
-**ECHECS-ENGINE** is a chess engine written in Elixir, leveraging Axon and Nx for neural inference, supervised training, and search.
+ECHECS-ENGINE is a chess engine and training stack written in Elixir. It uses Nx, Axon, and EXLA for neural evaluation, alpha-beta search, supervised training, and UCI integration.
+
+## Features
+
+- Alpha-beta search with iterative deepening, quiescence, transposition tables, and UCI time controls.
+- An optional MCTS backend and a sparse NNUE-style evaluator for checkpointed search.
+- Supervised policy/WDL/moves-left training from JSONL data, plus PGN-to-JSONL conversion.
+- UCI, benchmark, SPRT, and external engine-match commands.
+- CPU, NVIDIA CUDA, and AMD ROCm container paths. ROCm XLA builds from source and takes longer than the other paths.
+
+## Requirements
+
+- Elixir and Erlang compatible with [mix.exs](mix.exs)
+- Native dependencies for the selected Nx backend
+- Docker and Docker Compose for container-based CPU or GPU workflows
+
+## Quick Start
+
+```bash
+mix deps.get
+elixir deps/echecs/scripts/generate_magic_cache.exs
+mix engine.best --allow-zero-evaluator "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
+```
+
+`--allow-zero-evaluator` is a smoke-test mode only. Meaningful alpha-beta results require a sparse evaluator artifact, an `evaluator_fn`, or an inference callback. See [Finding a Move](#finding-a-move) and [Setup & Training](#setup--training) for the full workflow.
 
 ## Architectural Design
 
@@ -19,7 +43,7 @@ The production search path is alpha-beta first and can use a checkpointed sparse
 - Executes via `Nx.Defn` for compiled XLA evaluation.
 
 ### 3. Search
-The public `EchecsEngine.best_move/2` API defaults to recursive alpha-beta search with iterative deepening, quiescence, principal variation reporting, and optional sparse-evaluator artifacts. MCTS remains available only as an explicit experimental backend via `backend: :mcts`.
+The public `EchecsEngine.best_move/2` API defaults to recursive alpha-beta search with iterative deepening, quiescence, principal variation reporting, and optional sparse-evaluator artifacts. MCTS is available when selected explicitly with `backend: :mcts`.
 
 ## Setup & Training
 
@@ -30,8 +54,11 @@ The environment is securely containerized using an optimized, lightweight Debian
 The public engine boundary accepts a FEN and returns a UCI-style best move:
 
 ```elixir
-EchecsEngine.best_move("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1")
-#=> {:ok, "e2e4"}
+EchecsEngine.best_move(
+  "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+  allow_zero_evaluator: true
+)
+#=> {:ok, "<uci-move>"}
 ```
 
 The default alpha-beta path expects either a sparse evaluator artifact, an explicit
@@ -41,7 +68,7 @@ The default alpha-beta path expects either a sparse evaluator artifact, an expli
 From the terminal:
 
 ```bash
-mix engine.best "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
+mix engine.best --allow-zero-evaluator "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
 ```
 
 For GUI and benchmark integration, run the UCI protocol loop:
@@ -152,3 +179,7 @@ Training checkpoints are mathematically heavy because they contain historical gr
 mix engine.export
 ```
 This generates `models/echecs_engine_production.axon`. Production model artifacts now include metadata describing the tensor schema and output heads so incompatible checkpoints fail earlier and more clearly.
+
+## License
+
+ECHECS-ENGINE is licensed under the [GNU Affero General Public License v3.0 or later](LICENSE).
