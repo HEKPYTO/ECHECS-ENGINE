@@ -1,364 +1,399 @@
+# credo:disable-for-this-file Credo.Check.Refactor.CyclomaticComplexity
+# credo:disable-for-this-file Credo.Check.Refactor.Nesting
 defmodule EchecsEngine.UCI do
-  @moduledoc """
-  Minimal UCI protocol state machine for engine integration and benchmarking.
-  """
+  @moduledoc false
 
-  alias Echecs.Game
+  require Echecs.Move
 
-  defstruct game: Echecs.new_game(),
-            history_games: [],
-            best_move: &EchecsEngine.best_move/2,
-            task_supervisor: EchecsEngine.SearchTaskSupervisor,
-            search_task: nil,
-            search_id: nil,
+  @mate 32_000
+
+  defstruct game: nil,
+            task: nil,
+            id: nil,
+            stop_ref: nil,
+            bestmove: nil,
+            emitted?: false,
             quit?: false
 
-  @type t :: %__MODULE__{
-          game: Game.t(),
-          history_games: [Game.t()],
-          best_move: (String.t(), keyword() ->
-                        {:ok, String.t()} | {:terminal, atom()} | {:error, term()}),
-          task_supervisor: atom() | pid(),
-          search_task: Task.t() | nil,
-          search_id: reference() | nil,
-          quit?: boolean()
-        }
+  @type t :: %__MODULE__{}
 
-  @spec new(keyword()) :: t()
-  def new(opts \\ []) do
-    %__MODULE__{
-      game: Echecs.new_game(),
-      history_games: [],
-      best_move: Keyword.get(opts, :best_move, &EchecsEngine.best_move/2),
-      task_supervisor: Keyword.get(opts, :task_supervisor, EchecsEngine.SearchTaskSupervisor)
-    }
+  def new, do: %__MODULE__{game: Echecs.new_game()}
+
+  @spec run() :: t()
+  def run do
+    parent = self()
+    input_reader = spawn(fn -> read_input(parent) end)
+    loop(new(), input_reader)
   end
 
-  @spec handle_line(t(), String.t()) :: {t(), [String.t()]}
-  def handle_line(%__MODULE__{} = state, line) do
-    {state, pending_output} = drain(state)
-
-    {state, command_output} =
-      line
-      |> String.trim()
-      |> String.split(~r/\s+/, trim: true)
-      |> handle_tokens(state)
-
-    {state, pending_output ++ command_output}
+  def handle_line(state, line) do
+    {state, pending} = drain(state)
+    {state, output} = command(state, String.split(String.trim(line), ~r/\s+/, trim: true))
+    {state, pending ++ output}
   end
 
-  @spec drain(t()) :: {t(), [String.t()]}
-  def drain(%__MODULE__{} = state), do: drain_messages(state, [])
+  def drain(%__MODULE__{} = state), do: receive_messages(state, [])
 
-  defp handle_tokens(["uci"], state) do
-    {state, ["id name ECHECS-ENGINE", "id author HEKPYTO", "uciok"]}
+  defp read_input(parent) do
+    case IO.gets("") do
+      :eof ->
+        send(parent, :uci_eof)
+
+      {:error, _reason} ->
+        send(parent, :uci_eof)
+
+      line when is_binary(line) ->
+        send(parent, {:uci_input, line})
+        read_input(parent)
+
+      line ->
+        send(parent, {:uci_input, to_string(line)})
+        read_input(parent)
+    end
   end
 
-  defp handle_tokens(["isready"], state), do: {state, ["readyok"]}
+  defp loop(state, input_reader) do
+    receive do
+      {:uci_input, line} ->
+        {state, output} = handle_line(state, line)
+        print_output(output)
 
-  defp handle_tokens(["ucinewgame"], state),
-    do: {%{state | game: Echecs.new_game(), history_games: []}, []}
+        if state.quit? do
+          stop_input_reader(input_reader)
+        else
+          loop(state, input_reader)
+        end
 
-  defp handle_tokens(["position" | tokens], state), do: set_position(state, tokens)
+      :uci_eof ->
+        {state, output} = handle_line(state, "quit")
+        print_output(output)
+        stop_input_reader(input_reader)
+        state
+    after
+      10 ->
+        {state, output} = drain(state)
+        print_output(output)
+        loop(state, input_reader)
+    end
+  end
 
-  defp handle_tokens(["go" | tokens], state), do: go(state, tokens)
+  defp print_output(output), do: Enum.each(output, &IO.puts/1)
 
-  defp handle_tokens(["stop"], state), do: stop_search(state)
+  defp stop_input_reader(input_reader) do
+    if Process.alive?(input_reader), do: Process.exit(input_reader, :kill)
+  end
 
-  defp handle_tokens(["quit"], state) do
-    {state, _output} = stop_search(state, emit_bestmove?: false)
+  defp command(state, ["uci"]),
+    do: {state, ["id name ECHECS-ENGINE", "id author HEKPYTO", "uciok"]}
+
+  defp command(state, ["isready"]), do: {state, ["readyok"]}
+  defp command(state, ["ucinewgame"]), do: {%{state | game: Echecs.new_game()}, []}
+  defp command(state, ["position" | rest]), do: position(state, rest)
+
+  defp command(%{task: task} = state, ["go" | _]) when not is_nil(task),
+    do: {state, ["info string search already running"]}
+
+  defp command(state, ["go" | rest]), do: go(state, rest)
+  defp command(state, ["stop"]), do: stop(state)
+
+  defp command(state, ["quit"]) do
+    {state, _output} = stop(state)
     {%{state | quit?: true}, []}
   end
 
-  defp handle_tokens([], state), do: {state, []}
+  defp command(state, []), do: {state, []}
 
-  defp handle_tokens(tokens, state),
+  defp command(state, tokens),
     do: {state, ["info string unsupported command #{Enum.join(tokens, " ")}"]}
 
-  defp set_position(state, ["startpos" | rest]) do
-    apply_position_moves(state, Echecs.new_game(), moves_after_marker(rest))
-  end
+  defp position(state, ["startpos" | rest]),
+    do: apply_moves(state, Echecs.new_game(), after_moves(rest))
 
-  defp set_position(state, ["fen" | rest]) do
-    {fen_tokens, move_tokens} = split_fen_and_moves(rest)
-    fen = Enum.join(fen_tokens, " ")
+  defp position(state, ["fen" | rest]) do
+    {fen, moves} = split_fen(rest)
 
     try do
-      apply_position_moves(state, Echecs.new_game(fen), move_tokens)
+      apply_moves(state, Echecs.new_game(fen), moves)
     rescue
-      error -> {state, ["info string invalid fen #{Exception.message(error)}"]}
+      _ -> {state, ["info string invalid fen"]}
     end
   end
 
-  defp set_position(state, tokens),
-    do: {state, ["info string invalid position #{Enum.join(tokens, " ")}"]}
+  defp position(state, _), do: {state, ["info string invalid position"]}
 
-  defp apply_position_moves(state, game, moves) do
-    Enum.reduce_while(moves, {:ok, game, []}, fn uci_move, {:ok, current_game, history_games} ->
-      case apply_uci_move(current_game, uci_move) do
-        {:ok, next_game} -> {:cont, {:ok, next_game, [current_game | history_games]}}
-        {:error, _reason} -> {:halt, {:error, uci_move}}
+  defp apply_moves(state, game, moves) do
+    Enum.reduce_while(moves, {:ok, game}, fn text, {:ok, current} ->
+      case uci_move(current, text) do
+        {:ok, next} -> {:cont, {:ok, next}}
+        :error -> {:halt, {:error, text}}
       end
     end)
     |> case do
-      {:ok, game, history_games} -> {%{state | game: game, history_games: history_games}, []}
-      {:error, move} -> {state, ["info string invalid position move #{move}"]}
+      {:ok, game} -> {%{state | game: game}, []}
+      {:error, text} -> {state, ["info string invalid position move #{text}"]}
     end
   end
 
-  defp go(%__MODULE__{search_task: %Task{}} = state, _tokens),
-    do: {state, ["info string search already running"]}
+  defp go(state, tokens) do
+    case go_opts(tokens, state.game.turn) do
+      {:error, :invalid_go} ->
+        {state, ["info string invalid go"]}
 
-  defp go(%__MODULE__{game: game, history_games: history_games} = state, tokens) do
-    fen = Echecs.FEN.to_string(game)
+      {:ok, opts} ->
+        owner = self()
+        id = make_ref()
+        stop_ref = :atomics.new(1, [])
+        game = state.game
 
-    opts =
-      go_opts(tokens, game.turn)
-      |> Keyword.put(:history_games, history_games)
+        fallback =
+          game |> Echecs.MoveGen.legal_moves_int() |> List.first() |> EchecsEngine.Move.to_uci()
 
-    start_search(state, fen, opts)
-  end
+        task =
+          Task.Supervisor.async_nolink(EchecsEngine.SearchSupervisor, fn ->
+            case EchecsEngine.Search.best_move(
+                   game,
+                   opts ++
+                     [
+                       stop_ref: stop_ref,
+                       reporter: fn info -> send(owner, {:uci_info, id, info}) end
+                     ]
+                 ) do
+              {:ok, move, info} ->
+                {:ok, Map.put(info, :bestmove, EchecsEngine.Move.to_uci(move))}
 
-  defp start_search(%__MODULE__{best_move: best_move} = state, fen, opts) do
-    owner = self()
-    search_id = make_ref()
+              other ->
+                other
+            end
+          end)
 
-    task =
-      async_nolink(state.task_supervisor, fn ->
-        try do
-          send(owner, {:uci_search_started, search_id})
-
-          result =
-            best_move.(
-              fen,
-              opts
-              |> Keyword.put(:reporter, reporter_fn(owner, search_id))
-            )
-
-          result_to_output(result)
-        rescue
-          error ->
-            result_to_output({:error, error})
-        catch
-          kind, reason ->
-            result_to_output({:error, {kind, reason}})
-        end
-      end)
-
-    await_search_started(search_id)
-    {%{state | search_task: task, search_id: search_id}, []}
-  end
-
-  defp await_search_started(search_id) do
-    receive do
-      {:uci_search_started, ^search_id} -> :ok
-    after
-      50 -> :ok
+        {%{state | task: task, id: id, stop_ref: stop_ref, bestmove: fallback, emitted?: false},
+         []}
     end
   end
-
-  defp stop_search(%__MODULE__{} = state), do: stop_search(state, [])
-
-  defp stop_search(%__MODULE__{} = state, opts) do
-    {state, lines} = drain(state)
-
-    case state.search_task do
-      nil ->
-        {state, lines}
-
-      task ->
-        Task.shutdown(task, :brutal_kill)
-
-        final_lines =
-          if Keyword.get(opts, :emit_bestmove?, true) and
-               not Enum.any?(lines, &String.starts_with?(&1, "bestmove ")) do
-            lines ++ ["bestmove 0000"]
-          else
-            lines
-          end
-
-        {%{state | search_task: nil, search_id: nil}, final_lines}
-    end
-  end
-
-  defp async_nolink(supervisor, fun) do
-    case supervisor_pid(supervisor) do
-      nil ->
-        {:ok, supervisor_pid} = Task.Supervisor.start_link()
-        Task.Supervisor.async_nolink(supervisor_pid, fun)
-
-      supervisor_pid ->
-        Task.Supervisor.async_nolink(supervisor_pid, fun)
-    end
-  end
-
-  defp supervisor_pid(supervisor) when is_atom(supervisor), do: Process.whereis(supervisor)
-  defp supervisor_pid(supervisor) when is_pid(supervisor), do: supervisor
-
-  defp drain_messages(%__MODULE__{search_id: nil} = state, acc), do: {state, Enum.reverse(acc)}
-
-  defp drain_messages(%__MODULE__{search_task: task, search_id: search_id} = state, acc) do
-    receive do
-      {:uci_search_started, ^search_id} ->
-        drain_messages(state, acc)
-
-      {:uci_search_line, ^search_id, line} ->
-        drain_messages(state, [line | acc])
-
-      {ref, lines} when not is_nil(task) and ref == task.ref and is_list(lines) ->
-        drop_task_down(task)
-        state = %{state | search_task: nil, search_id: nil}
-        drain_messages(state, Enum.reverse(lines) ++ acc)
-
-      {ref, _result} when not is_nil(task) and ref == task.ref ->
-        drop_task_down(task)
-        state = %{state | search_task: nil, search_id: nil}
-        drain_messages(state, acc)
-
-      {:DOWN, ref, :process, _pid, _reason} when not is_nil(task) and ref == task.ref ->
-        state = %{state | search_task: nil, search_id: nil}
-        drain_messages(state, acc)
-    after
-      0 ->
-        {state, Enum.reverse(acc)}
-    end
-  end
-
-  defp drop_task_down(task) do
-    receive do
-      {:DOWN, ref, :process, _pid, _reason} when ref == task.ref -> :ok
-    after
-      0 -> :ok
-    end
-  end
-
-  defp reporter_fn(owner, search_id),
-    do: fn info -> send(owner, {:uci_search_line, search_id, format_info(info)}) end
-
-  defp result_to_output({:ok, move}), do: ["bestmove #{move}"]
-  defp result_to_output({:terminal, _status}), do: ["bestmove 0000"]
-
-  defp result_to_output({:error, reason}),
-    do: ["info string search error #{inspect(reason)}", "bestmove 0000"]
-
-  defp moves_after_marker(["moves" | moves]), do: moves
-  defp moves_after_marker(_tokens), do: []
-
-  defp split_fen_and_moves(tokens) do
-    {fen_tokens, rest} = Enum.split_while(tokens, &(&1 != "moves"))
-
-    move_tokens =
-      case rest do
-        ["moves" | moves] -> moves
-        [] -> []
-      end
-
-    {Enum.take(fen_tokens, 6), move_tokens}
-  end
-
-  defp apply_uci_move(game, <<from::binary-size(2), to::binary-size(2), rest::binary>>) do
-    Echecs.make_move(
-      game,
-      Echecs.Board.to_index(from),
-      Echecs.Board.to_index(to),
-      parse_promotion(rest)
-    )
-  rescue
-    error -> {:error, error}
-  end
-
-  defp apply_uci_move(_game, _move), do: {:error, :invalid_move}
-
-  defp parse_promotion(""), do: nil
-  defp parse_promotion("q"), do: :queen
-  defp parse_promotion("r"), do: :rook
-  defp parse_promotion("b"), do: :bishop
-  defp parse_promotion("n"), do: :knight
-  defp parse_promotion(_), do: nil
 
   defp go_opts(tokens, turn) do
-    tokens
-    |> parse_go_opts([])
-    |> derive_movetime(turn)
-  rescue
-    _error -> []
+    with {:ok, controls} <- parse_go(tokens, %{}), do: search_limit(controls, turn)
   end
 
-  defp parse_go_opts([], opts), do: Enum.reverse(opts)
+  defp parse_go([], controls), do: {:ok, controls}
+  defp parse_go(["infinite"], controls), do: put_control(controls, :infinite, true)
 
-  defp parse_go_opts(["infinite" | rest], opts),
-    do: parse_go_opts(rest, [{:infinite, true} | opts])
-
-  defp parse_go_opts(["movetime", value | rest], opts),
-    do: parse_go_opts(rest, [{:movetime, String.to_integer(value)} | opts])
-
-  defp parse_go_opts(["depth", value | rest], opts),
-    do: parse_go_opts(rest, [{:depth, String.to_integer(value)} | opts])
-
-  defp parse_go_opts(["nodes", value | rest], opts),
-    do: parse_go_opts(rest, [{:nodes, String.to_integer(value)} | opts])
-
-  defp parse_go_opts(["wtime", value | rest], opts),
-    do: parse_go_opts(rest, [{:wtime, String.to_integer(value)} | opts])
-
-  defp parse_go_opts(["btime", value | rest], opts),
-    do: parse_go_opts(rest, [{:btime, String.to_integer(value)} | opts])
-
-  defp parse_go_opts(["winc", value | rest], opts),
-    do: parse_go_opts(rest, [{:winc, String.to_integer(value)} | opts])
-
-  defp parse_go_opts(["binc", value | rest], opts),
-    do: parse_go_opts(rest, [{:binc, String.to_integer(value)} | opts])
-
-  defp parse_go_opts(["movestogo", value | rest], opts),
-    do: parse_go_opts(rest, [{:movestogo, String.to_integer(value)} | opts])
-
-  defp parse_go_opts([_unknown | rest], opts), do: parse_go_opts(rest, opts)
-
-  defp derive_movetime(opts, turn) do
-    cond do
-      is_integer(opts[:movetime]) ->
-        opts
-
-      opts[:infinite] == true ->
-        opts
-
-      true ->
-        derive_clock_movetime(opts, turn)
+  defp parse_go([name, value | rest], controls)
+       when name in ["depth", "nodes", "movetime", "movestogo"] do
+    with {:ok, number} <- parse_int(value),
+         {:ok, controls} <- put_control(controls, String.to_existing_atom(name), number) do
+      parse_go(rest, controls)
     end
   end
 
-  defp derive_clock_movetime(opts, turn) do
-    clock = if(turn == :white, do: opts[:wtime], else: opts[:btime])
-    increment = if(turn == :white, do: opts[:winc], else: opts[:binc]) || 0
+  defp parse_go([name, value | rest], controls)
+       when name in ["wtime", "btime", "winc", "binc"] do
+    with {:ok, number} <- parse_nonnegative_int(value),
+         {:ok, controls} <- put_control(controls, String.to_existing_atom(name), number) do
+      parse_go(rest, controls)
+    end
+  end
 
-    if is_integer(clock) do
-      moves_to_go = max(opts[:movestogo] || 30, 1)
-      planned = max(div(clock, moves_to_go) + div(increment * 8, 10), 1)
-      safe_budget = if clock > 50, do: min(planned, clock - 50), else: planned
-      Keyword.put(opts, :movetime, safe_budget)
+  defp parse_go(_, _), do: {:error, :invalid_go}
+
+  defp put_control(controls, key, value) do
+    if Map.has_key?(controls, key),
+      do: {:error, :invalid_go},
+      else: {:ok, Map.put(controls, key, value)}
+  end
+
+  defp search_limit(controls, turn) do
+    explicit = Enum.filter([:depth, :nodes, :movetime, :infinite], &Map.has_key?(controls, &1))
+
+    case explicit do
+      [:infinite] when map_size(controls) == 1 ->
+        {:ok, [nodes: 9_223_372_036_854_775_807]}
+
+      [key] when key != :infinite ->
+        {:ok, [{key, Map.fetch!(controls, key)}]}
+
+      [] when map_size(controls) == 0 ->
+        {:ok, []}
+
+      [] ->
+        clock_limit(controls, turn)
+
+      _ ->
+        {:error, :invalid_go}
+    end
+  end
+
+  defp clock_limit(controls, turn) do
+    {time_key, increment_key} = if turn == :white, do: {:wtime, :winc}, else: {:btime, :binc}
+
+    case Map.fetch(controls, time_key) do
+      {:ok, time} ->
+        moves = Map.get(controls, :movestogo, 30)
+        increment = Map.get(controls, increment_key, 0)
+        allocation = div(time, moves) + div(increment * 3, 4)
+        reserve = max(div(time, 20), 1)
+        {:ok, [movetime: min(max(allocation, 1), max(time - reserve, 1))]}
+
+      :error ->
+        {:error, :invalid_go}
+    end
+  end
+
+  defp parse_int(value) do
+    case Integer.parse(value) do
+      {number, ""} when number > 0 -> {:ok, number}
+      _ -> {:error, :invalid_go}
+    end
+  end
+
+  defp parse_nonnegative_int(value) do
+    case Integer.parse(value) do
+      {number, ""} when number >= 0 -> {:ok, number}
+      _ -> {:error, :invalid_go}
+    end
+  end
+
+  defp stop(%{task: nil} = state), do: {state, []}
+
+  defp stop(state) do
+    :atomics.put(state.stop_ref, 1, 1)
+    {state, lines} = await_task(state, [], System.monotonic_time(:millisecond) + 100)
+
+    state =
+      case state.task do
+        nil ->
+          state
+
+        task ->
+          _ = Task.shutdown(task, :brutal_kill)
+          clear_task(state)
+      end
+
+    if state.emitted? do
+      {state, lines}
     else
-      opts
+      {%{state | emitted?: true}, lines ++ ["bestmove #{state.bestmove}"]}
     end
   end
 
-  defp format_info(info) when is_map(info) do
-    segments =
-      []
-      |> maybe_append("depth", info[:depth] || info["depth"])
-      |> maybe_append("seldepth", info[:seldepth] || info["seldepth"])
-      |> maybe_append("nodes", info[:nodes] || info["nodes"])
-      |> maybe_append("time", info[:time] || info["time"])
-      |> maybe_append_pv(info[:pv] || info["pv"])
+  defp receive_messages(%{task: nil} = state, lines), do: {state, Enum.reverse(lines)}
 
-    Enum.join(["info" | segments], " ")
+  defp receive_messages(state, lines) do
+    receive do
+      {:uci_info, id, info} when id == state.id ->
+        bestmove = List.first(info.pv) || state.bestmove
+        receive_messages(%{state | bestmove: bestmove}, [format_info(info) | lines])
+
+      {ref, result} when ref == state.task.ref ->
+        {state, output} = completed(state, result)
+        state = clear_task(state)
+        receive_messages(state, Enum.reverse(output) ++ lines)
+
+      {:DOWN, ref, :process, _pid, _} when ref == state.task.ref ->
+        {state, output} = completed(state, {:error, :task_down})
+        state = clear_task(state)
+        receive_messages(state, Enum.reverse(output) ++ lines)
+    after
+      0 -> {state, Enum.reverse(lines)}
+    end
   end
 
-  defp format_info(info), do: "info string #{inspect(info)}"
+  defp await_task(%{task: nil} = state, lines, _deadline), do: {state, lines}
 
-  defp maybe_append(segments, _label, nil), do: segments
-  defp maybe_append(segments, label, value), do: segments ++ [label, to_string(value)]
+  defp await_task(state, lines, deadline) do
+    remaining = deadline - System.monotonic_time(:millisecond)
 
-  defp maybe_append_pv(segments, nil), do: segments
-  defp maybe_append_pv(segments, pv) when is_list(pv), do: segments ++ ["pv", Enum.join(pv, " ")]
+    if remaining <= 0 do
+      {state, lines}
+    else
+      receive do
+        {:uci_info, id, info} when id == state.id ->
+          bestmove = List.first(info.pv) || state.bestmove
+          await_task(%{state | bestmove: bestmove}, lines ++ [format_info(info)], deadline)
+
+        {ref, result} when ref == state.task.ref ->
+          {state, output} = completed(state, result)
+          state = clear_task(state)
+          {state, lines ++ output}
+
+        {:DOWN, ref, :process, _pid, _} when ref == state.task.ref ->
+          {state, output} = completed(state, {:error, :task_down})
+          state = clear_task(state)
+          {state, lines ++ output}
+      after
+        remaining -> {state, lines}
+      end
+    end
+  end
+
+  defp completed(state, {:ok, %{bestmove: move}}) do
+    output = if(state.emitted?, do: [], else: ["bestmove #{move}"])
+    {%{state | bestmove: move, emitted?: true}, output}
+  end
+
+  defp completed(state, {:terminal, _}) do
+    output = if(state.emitted?, do: [], else: ["bestmove 0000"])
+    {%{state | emitted?: true}, output}
+  end
+
+  defp completed(state, {:error, reason}) do
+    output =
+      if state.emitted? do
+        []
+      else
+        ["info string search error #{inspect(reason)}", "bestmove #{state.bestmove || "0000"}"]
+      end
+
+    {%{state | emitted?: true}, output}
+  end
+
+  defp completed(state, result) do
+    completed(state, {:error, result})
+  end
+
+  defp clear_task(state) do
+    Process.demonitor(state.task.ref, [:flush])
+    %{state | task: nil, id: nil, stop_ref: nil}
+  end
+
+  defp format_info(info),
+    do:
+      "info depth #{info.depth} seldepth #{info.seldepth} score #{score(info.score)} nodes #{info.nodes} time #{info.time_ms} nps #{nps(info.nodes, info.time_ms)} pv #{Enum.join(info.pv, " ")}"
+
+  defp score(score) when score > 31_000, do: "mate #{div(@mate - score + 1, 2)}"
+  defp score(score) when score < -31_000, do: "mate #{-div(@mate + score, 2)}"
+  defp score(score), do: "cp #{score}"
+  defp nps(_, 0), do: 0
+  defp nps(nodes, ms), do: div(nodes * 1_000, ms)
+
+  defp after_moves(["moves" | moves]), do: moves
+  defp after_moves(_), do: []
+
+  defp split_fen(tokens) do
+    {fen, rest} = Enum.split_while(tokens, &(&1 != "moves"))
+    {Enum.join(fen, " "), after_moves(rest)}
+  end
+
+  defp uci_move(game, <<from::binary-size(2), to::binary-size(2), promotion::binary>>) do
+    promotion =
+      case promotion do
+        "" -> nil
+        "q" -> :queen
+        "r" -> :rook
+        "b" -> :bishop
+        "n" -> :knight
+        _ -> :invalid
+      end
+
+    move =
+      Enum.find(Echecs.MoveGen.legal_moves_int(game), fn packed ->
+        Echecs.Board.to_algebraic(Echecs.Move.unpack_from(packed)) == from and
+          Echecs.Board.to_algebraic(Echecs.Move.unpack_to(packed)) == to and
+          Echecs.Move.unpack_promotion(packed) == promotion
+      end)
+
+    if move, do: {:ok, Echecs.Game.make_move_int(game, move)}, else: :error
+  end
+
+  defp uci_move(_, _), do: :error
 end

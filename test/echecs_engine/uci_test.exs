@@ -1,195 +1,194 @@
 defmodule EchecsEngine.UCITest do
-  use ExUnit.Case, async: true
+  use ExUnit.Case, async: false
+  import ExUnit.CaptureIO
 
   alias EchecsEngine.UCI
 
-  test "responds to uci and isready handshakes" do
+  test "runs the UCI loop without Mix" do
+    output = capture_io("uci\nisready\nquit\n", &UCI.run/0)
+
+    assert output =~ "id name ECHECS-ENGINE"
+    assert output =~ "uciok"
+    assert output =~ "readyok"
+  end
+
+  test "responds to the UCI handshakes" do
     state = UCI.new()
-
-    {state, uci_output} = UCI.handle_line(state, "uci")
-    {_state, ready_output} = UCI.handle_line(state, "isready")
-
-    assert "id name ECHECS-ENGINE" in uci_output
-    assert "uciok" in uci_output
-    assert ready_output == ["readyok"]
+    {state, output} = UCI.handle_line(state, "uci")
+    assert "uciok" in output
+    assert {_state, ["readyok"]} = UCI.handle_line(state, "isready")
   end
 
-  test "sets startpos with moves and asks engine for bestmove" do
-    best_move = fn fen, opts ->
-      assert fen == "rnbqkbnr/pppp1ppp/8/4p3/4P3/8/PPPP1PPP/RNBQKBNR w KQkq e6 0 2"
-      assert length(opts[:history_games]) == 2
-      {:ok, "g1f3"}
-    end
-
-    state = UCI.new(best_move: best_move)
-    {state, []} = UCI.handle_line(state, "position startpos moves e2e4 e7e5")
-
-    {state, output} = UCI.handle_line(state, "go movetime 10")
-
-    assert output == []
-    assert {_state, ["bestmove g1f3"]} = drain_until_bestmove(state)
-  end
-
-  test "passes parsed go budgets to the search callback" do
-    parent = self()
-
-    best_move = fn _fen, opts ->
-      send(parent, {:opts, opts})
-      {:ok, "e2e4"}
-    end
-
-    state = UCI.new(best_move: best_move)
-    {state, []} = UCI.handle_line(state, "go movetime 25 nodes 9 depth 3")
-    assert {_state, ["bestmove e2e4"]} = drain_until_bestmove(state)
-
-    assert_receive {:opts, opts}
-    assert opts[:movetime] == 25
-    assert opts[:nodes] == 9
-    assert opts[:depth] == 3
-  end
-
-  test "emits iterative search info lines before bestmove" do
-    best_move = fn _fen, opts ->
-      opts[:reporter].(%{depth: 1, nodes: 32, pv: ["e2e4"]})
-      opts[:reporter].(%{depth: 2, nodes: 64, pv: ["e2e4", "e7e5"]})
-      {:ok, "e2e4"}
-    end
-
-    state = UCI.new(best_move: best_move)
-    {state, []} = UCI.handle_line(state, "go depth 2")
-    {_state, output} = drain_until_bestmove(state)
-
-    assert Enum.at(output, 0) =~ "info depth 1"
-    assert Enum.at(output, 1) =~ "info depth 2"
-    assert List.last(output) == "bestmove e2e4"
-  end
-
-  test "passes standard clock controls and derives a movetime budget" do
-    parent = self()
-
-    best_move = fn _fen, opts ->
-      send(parent, {:opts, opts})
-      {:ok, "e2e4"}
-    end
-
-    state = UCI.new(best_move: best_move)
-
-    {state, []} =
-      UCI.handle_line(state, "go wtime 60000 btime 45000 winc 1000 binc 500 movestogo 30")
-
-    assert {_state, ["bestmove e2e4"]} = drain_until_bestmove(state)
-
-    assert_receive {:opts, opts}
-    assert opts[:wtime] == 60_000
-    assert opts[:btime] == 45_000
-    assert opts[:winc] == 1_000
-    assert opts[:binc] == 500
-    assert opts[:movestogo] == 30
-    assert is_integer(opts[:movetime])
-    assert opts[:movetime] > 0
-  end
-
-  test "accepts infinite and stop commands" do
-    parent = self()
-
-    best_move = fn _fen, opts ->
-      send(parent, {:opts, opts})
-      Process.sleep(:infinity)
-      {:ok, "e2e4"}
-    end
-
-    state = UCI.new(best_move: best_move)
+  test "stop returns the last completed principal variation" do
+    state = UCI.new()
+    {state, []} = UCI.handle_line(state, "position startpos")
     {state, []} = UCI.handle_line(state, "go infinite")
-    {_state, ["bestmove 0000"]} = UCI.handle_line(state, "stop")
-
-    assert_receive {:opts, opts}
-    assert opts[:infinite] == true
+    {state, lines} = wait_for_info(state)
+    assert Enum.any?(lines, &String.starts_with?(&1, "info depth "))
+    task_pid = state.task.pid
+    {state, stopped} = UCI.handle_line(state, "stop")
+    assert Enum.any?(stopped, &String.starts_with?(&1, "bestmove "))
+    assert Enum.count(stopped, &String.starts_with?(&1, "bestmove ")) == 1
+    refute "bestmove 0000" in stopped
+    assert is_nil(state.task)
+    refute Process.alive?(task_pid)
+    {_state, delayed} = UCI.drain(state)
+    refute Enum.any?(delayed, &String.starts_with?(&1, "bestmove "))
   end
 
-  test "normal go searches return immediately and can be stopped" do
-    parent = self()
+  test "many completed searches leave the application search supervisor at its baseline" do
+    baseline = DynamicSupervisor.count_children(EchecsEngine.SearchSupervisor).active
 
-    best_move = fn _fen, opts ->
-      send(parent, {:opts, opts})
-      Process.sleep(:infinity)
-      {:ok, "e2e4"}
-    end
+    Enum.each(1..6, fn _ ->
+      state = UCI.new()
+      {state, []} = UCI.handle_line(state, "go depth 1")
+      {state, _lines} = wait_for_completion(state)
+      assert is_nil(state.task)
+    end)
 
-    state = UCI.new(best_move: best_move)
-    {state, []} = UCI.handle_line(state, "go movetime 1000")
-    assert_receive {:opts, opts}
-    assert opts[:movetime] == 1000
-
-    assert {_state, ["bestmove 0000"]} = UCI.handle_line(state, "stop")
+    assert DynamicSupervisor.count_children(EchecsEngine.SearchSupervisor).active == baseline
   end
 
-  test "quit cleans up active search task" do
-    best_move = fn _fen, _opts ->
-      Process.sleep(:infinity)
-      {:ok, "e2e4"}
-    end
-
-    state = UCI.new(best_move: best_move)
+  test "quit tears down the known supervised search task" do
+    state = UCI.new()
     {state, []} = UCI.handle_line(state, "go infinite")
+    {state, lines} = wait_for_info(state)
+    assert Enum.any?(lines, &String.starts_with?(&1, "info depth "))
+    task_pid = state.task.pid
+
     {state, []} = UCI.handle_line(state, "quit")
-
     assert state.quit?
-    assert state.search_task == nil
+    assert is_nil(state.task)
+    refute Process.alive?(task_pid)
   end
 
-  test "sets arbitrary FEN and applies moves" do
-    best_move = fn fen, _opts ->
-      assert fen == "8/8/8/8/4P3/8/8/4K2k b - e3 0 1"
-      {:ok, "h1h2"}
-    end
-
-    state = UCI.new(best_move: best_move)
-    {state, []} = UCI.handle_line(state, "position fen 8/8/8/8/8/8/4P3/4K2k w - - 0 1 moves e2e4")
-
-    {state, output} = UCI.handle_line(state, "go")
-
-    assert output == []
-    assert {_state, ["bestmove h1h2"]} = drain_until_bestmove(state)
+  test "rejects an invalid position move" do
+    {_state, [line]} = UCI.new() |> UCI.handle_line("position startpos moves e2e5")
+    assert line =~ "invalid position move"
   end
 
-  test "reports terminal positions as bestmove 0000" do
-    best_move = fn _fen, _opts -> {:terminal, :stalemate} end
+  test "an errored or killed asynchronous task still emits one terminal bestmove" do
+    task = Task.Supervisor.async_nolink(EchecsEngine.SearchSupervisor, fn -> {:error, :boom} end)
 
-    state = UCI.new(best_move: best_move)
-    {state, []} = UCI.handle_line(state, "go")
-    {_state, output} = drain_until_bestmove(state)
+    state = %{
+      UCI.new()
+      | task: task,
+        id: make_ref(),
+        stop_ref: :atomics.new(1, []),
+        bestmove: "e2e4"
+    }
 
-    assert output == ["bestmove 0000"]
+    {state, lines} = wait_for_completion(state)
+    assert lines == ["info string search error :boom", "bestmove e2e4"]
+    assert state.emitted?
+    assert is_nil(state.task)
+    assert {_state, []} = UCI.drain(state)
+
+    {state, []} = UCI.new() |> UCI.handle_line("go infinite")
+    task_pid = state.task.pid
+    Process.exit(task_pid, :kill)
+    {state, lines} = wait_for_completion(state)
+
+    assert Enum.count(lines, &String.starts_with?(&1, "bestmove ")) == 1
+    assert Enum.any?(lines, &String.starts_with?(&1, "info string search error "))
+    refute "bestmove 0000" in lines
+    assert state.emitted?
+    assert is_nil(state.task)
+    refute Process.alive?(task_pid)
+    assert {_state, []} = UCI.drain(state)
   end
 
-  test "reports invalid position moves as info strings" do
+  test "invalid go preserves the protocol state for the next command" do
     state = UCI.new()
-
-    {_state, output} = UCI.handle_line(state, "position startpos moves e2e5")
-
-    assert output == ["info string invalid position move e2e5"]
+    {state, ["info string invalid go"]} = UCI.handle_line(state, "go depth 2 junk")
+    assert {_state, ["readyok"]} = UCI.handle_line(state, "isready")
   end
 
-  defp drain_until_bestmove(state, attempts \\ 20)
+  test "accepts standard clock controls with zero increments" do
+    {state, []} =
+      UCI.new()
+      |> UCI.handle_line("go wtime 100 btime 100 winc 0 binc 0 movestogo 1")
 
-  defp drain_until_bestmove(state, 0), do: UCI.drain(state)
+    assert state.task
+    {state, lines} = UCI.handle_line(state, "stop")
+    assert is_nil(state.task)
+    assert Enum.count(lines, &String.starts_with?(&1, "bestmove ")) == 1
+  end
 
-  defp drain_until_bestmove(state, attempts) do
+  test "UCI retains repetition history instead of round-tripping its game through FEN" do
+    {state, []} =
+      UCI.new()
+      |> UCI.handle_line("position startpos moves g1f3 g8f6 f3g1 f6g8 g1f3 g8f6 f3g1 f6g8")
+
+    assert Echecs.Game.draw?(state.game)
+    {state, []} = UCI.handle_line(state, "go depth 1")
+    {_state, transcript} = collect_completion(state)
+    assert transcript == ["bestmove 0000"]
+  end
+
+  test "terminal positions and real go mate scores use UCI mate distances" do
+    {state, []} = UCI.new() |> UCI.handle_line("position fen 7k/6Q1/7K/8/8/8/8/8 b - - 0 1")
+    {state, []} = UCI.handle_line(state, "go depth 1")
+    {_state, terminal} = collect_completion(state)
+    assert terminal == ["bestmove 0000"]
+
+    assert Enum.any?(go_transcript("7k/5Q2/7K/8/8/8/8/8 w - - 0 1", 2), &(&1 =~ "score mate 1"))
+
+    assert Enum.any?(go_transcript("6k1/8/7K/8/8/8/8/5Q2 w - - 2 2", 4), &(&1 =~ "score mate 2"))
+
+    assert Enum.any?(
+             go_transcript("6k1/8/5K2/4Q3/8/8/8/8 b - - 0 1", 6),
+             &(&1 =~ "score mate -2")
+           )
+  end
+
+  defp wait_for_info(state, attempts \\ 50)
+  defp wait_for_info(state, 0), do: UCI.drain(state)
+
+  defp wait_for_info(state, attempts) do
     case UCI.drain(state) do
       {state, []} ->
         Process.sleep(10)
-        drain_until_bestmove(state, attempts - 1)
+        wait_for_info(state, attempts - 1)
 
-      {state, output} when is_list(output) ->
-        if Enum.any?(output, &String.starts_with?(&1, "bestmove ")) do
-          {state, output}
-        else
-          Process.sleep(10)
-          drain_until_bestmove(state, attempts - 1)
-        end
+      {state, lines} ->
+        {state, lines}
+    end
+  end
 
-      {state, output} ->
-        {state, output}
+  defp wait_for_completion(state, attempts \\ 100)
+  defp wait_for_completion(state, 0), do: UCI.drain(state)
+
+  defp wait_for_completion(state, attempts) do
+    case UCI.drain(state) do
+      {%{task: nil} = state, lines} ->
+        {state, lines}
+
+      {state, _lines} ->
+        Process.sleep(5)
+        wait_for_completion(state, attempts - 1)
+    end
+  end
+
+  defp go_transcript(fen, depth) do
+    {state, []} = UCI.new() |> UCI.handle_line("position fen #{fen}")
+    {state, []} = UCI.handle_line(state, "go depth #{depth}")
+    {_state, lines} = collect_completion(state)
+    lines
+  end
+
+  defp collect_completion(state, lines \\ [], attempts \\ 200)
+  defp collect_completion(state, lines, 0), do: {state, lines}
+
+  defp collect_completion(state, lines, attempts) do
+    {state, output} = UCI.drain(state)
+    lines = lines ++ output
+
+    if is_nil(state.task) do
+      {state, lines}
+    else
+      Process.sleep(5)
+      collect_completion(state, lines, attempts - 1)
     end
   end
 end

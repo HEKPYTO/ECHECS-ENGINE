@@ -5,10 +5,7 @@ defmodule EchecsEngine.Application do
 
   @impl true
   def start(_type, _args) do
-    children = [
-      {Task.Supervisor, name: EchecsEngine.SearchTaskSupervisor},
-      EchecsEngine.Serving
-    ]
+    children = [{Task.Supervisor, name: EchecsEngine.SearchSupervisor}]
 
     opts = [strategy: :one_for_one, name: EchecsEngine.Supervisor]
     Supervisor.start_link(children, opts)

@@ -27,9 +27,6 @@ defmodule EchecsEngine.MixProject do
     [
       echecs_dep(),
       {:jason, "~> 1.4"},
-      {:nx, "~> 0.7"},
-      {:axon, "~> 0.6"},
-      {:exla, "~> 0.7"},
 
       # Lint & static analysis (dev only)
       {:credo, "~> 1.7", only: :dev, runtime: false},
