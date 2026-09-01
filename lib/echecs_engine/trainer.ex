@@ -1,6 +1,38 @@
 # credo:disable-for-this-file Credo.Check.Warning.RaiseInsideRescue
 defmodule EchecsEngine.Trainer do
-  @moduledoc "Streaming, deterministic SGD for the integer evaluator."
+  @moduledoc """
+  Streaming, deterministic SGD for the integer NNUE evaluator.
+
+  Trains `EchecsEngine.Eval` weights from labeled JSONL without ever
+  loading the dataset into memory. Each row must contain `fen` and exactly
+  one label: `eval_cp` (centipawns, side-to-move), `wdl` (`[win,draw,loss]`
+  triplet, `sum==1`, mapped to `(win-loss)*1000`), or `result` (`"1-0"`,
+  `"0-1"`, `"1/2-1/2"` as White result, flipped to side-to-move). Rejects
+  ambiguous or missing labels.
+
+  ## Determinism
+
+  Partitioning into training/validation uses `:erlang.phash2({seed, FEN}, 10_000)`
+  so the split is stable across runs. Epochs average gradients over
+  `training_rows` before applying integer-clipped updates. `validation_fraction`
+  defaults to `0.2`; set to `0` for no validation.
+
+  Loss is mean squared error over streamed rows; the returned map reports
+  `initial_training_loss` / `training_loss` and `initial_validation_loss` /
+  `validation_loss` plus `active_updates` and `changed_tensors`.
+
+  ## Scope
+
+  Only active feature rows and the dense tail (`w1/b1/w2` + `psqt`/`b2`) are
+  touched; inactive rows stay at their seed. Updates are `±1..64` clipped
+  and accumulated per-index then averaged, so training is a bounded integer
+  walk, not a float optimizer. Not a strength or Stockfish-parity claim.
+
+  ## Example
+
+      EchecsEngine.Trainer.train!("data/train.jsonl", "priv/echecs.nnue",
+        epochs: 1, learning_rate: 0.05, validation_fraction: 0.2, seed: 0)
+  """
 
   alias EchecsEngine.Eval
 
@@ -8,6 +40,18 @@ defmodule EchecsEngine.Trainer do
   @neurons 64
   @hidden 16
 
+  @doc """
+  Trains a `ETNN` v1 evaluator from `input` JSONL to `output` path.
+
+  Options: `:epochs` (pos integer, default `1`), `:learning_rate` (pos float,
+  default `0.05`), `:validation_fraction` (`0 <= f < 1`, default `0.2`),
+  `:seed` (integer, default `0`). Raises `ArgumentError` on empty inputs,
+  empty partitions, or unknown options.
+
+  Returns `%{rows, training_rows, validation_rows, initial_training_loss,
+  training_loss, initial_validation_loss, validation_loss, changed_tensors,
+  active_updates, batches, output}`.
+  """
   @spec train!(Path.t(), Path.t(), keyword()) :: map()
   def train!(input, output, opts \\ []) do
     validate_opts!(opts)

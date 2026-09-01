@@ -1,5 +1,40 @@
 defmodule EchecsEngine.Eval do
-  @moduledoc "The versioned, integer evaluator used by the engine."
+  @moduledoc """
+  Versioned integer NNUE evaluator (`ETNN` v1).
+
+  Pure-Elixir, no NIFs and no floating point at runtime. The artifact
+  `priv/echecs.nnue` stores a 16-bucket, 64-neuron feature transformer
+  (`feature` + `psqt`) and a `128 → 16 → 1` dense tail (`w1/b1/w2/b2`).
+  All weights are signed integers; inference is integer arithmetic clipped
+  to `0..127`.
+
+  ## Architecture
+
+  * **Buckets** - `king_bucket/2` maps each king square to one of 16 buckets
+    (`rank ÷ 2 × 4 + file ÷ 2`), giving piece-square tables and feature rows
+    view-dependent structure.
+  * **Accumulator** - `refresh/2` builds both-colour accumulators from scratch;
+    `update/5` incrementally patches them on the incremental `move_changes/3`
+    set (add/remove/castling/en-passant/promotion). On bucket change the
+    affected side is refreshed.
+  * **PSQT** - material-aware piece-square table seeded by `psqt_seed/3`; the
+    `psqt` term is the sum of both colours and is kept in the accumulator.
+  * **Tail** - `dense_score/3` applies `transformed/1` (clipped ReLU with
+    squared term), a `128×16` hidden layer, and a `16×1` output, scaled by
+    `scale` (1024).
+
+  ## Artifact format
+
+  `ETNN` magic, `version=1`, header `(buckets,kinds,squares,neurons,128,hidden,1,scale)`,
+  then raw binaries `feature/psqt/w1/b1/w2/b2`. `load!/1` / `dump!/2` are the
+  only I/O entry points.
+
+  ## Training vs inference
+
+  `training_features/1` exposes active feature rows for `EchecsEngine.Trainer`.
+  `seed_weights/0` produces a deterministic material-aware starting point so
+  the engine is usable before any training.
+  """
 
   require Echecs.Move
 
@@ -37,15 +72,18 @@ defmodule EchecsEngine.Eval do
           black_bucket: non_neg_integer()
         }
 
+  @doc "Loads and validates a versioned evaluator artifact from `path`."
   @spec load!(Path.t()) :: weights()
   def load!(path), do: path |> File.read!() |> load_binary!()
 
+  @doc "Persists `weights` to `path` after validation."
   @spec dump!(Path.t(), weights()) :: :ok
   def dump!(path, weights) do
     File.write!(path, dump_binary(weights))
     :ok
   end
 
+  @doc "Serializes `weights` to the `ETNN` v1 binary format."
   @spec dump_binary(weights()) :: binary()
   def dump_binary(weights) do
     validate_weights!(weights)
@@ -56,6 +94,13 @@ defmodule EchecsEngine.Eval do
       weights.w1::binary, weights.b1::binary, weights.w2::binary, weights.b2::binary>>
   end
 
+  @doc """
+  Returns deterministic seed weights.
+
+  Feature rows are `1..4` patterned by bucket/kind/square/neuron; PSQT is
+  material + pawn-advance seeded. Dense tail starts at zero so the network
+  contributes nothing until training.
+  """
   @spec seed_weights() :: weights()
   def seed_weights do
     %{
@@ -69,6 +114,12 @@ defmodule EchecsEngine.Eval do
     }
   end
 
+  @doc """
+  Builds a fresh accumulator for `game` under `weights`.
+
+  Sums active feature rows and PSQT entries for both colours. Used at the
+  search root and whenever a king bucket changes.
+  """
   @spec refresh(Echecs.Game.t(), weights()) :: accumulator()
   def refresh(game, weights) do
     {white_bucket, black_bucket} = buckets(game)
@@ -87,6 +138,13 @@ defmodule EchecsEngine.Eval do
     }
   end
 
+  @doc """
+  Incrementally updates `accumulator` across `move`.
+
+  Replays the minimal `move_changes/3` delta (captures, promotions,
+  castling rook hops, en-passant victim). If a king bucket changes the
+  affected side is refreshed instead of patched.
+  """
   @spec update(accumulator(), Echecs.Game.t(), integer(), Echecs.Game.t(), weights()) ::
           accumulator()
   def update(accumulator, before, move, after_game, weights) do
@@ -144,6 +202,12 @@ defmodule EchecsEngine.Eval do
     }
   end
 
+  @doc """
+  Evaluates `game` from the side-to-move perspective.
+
+  `psqt + dense_score` with perspective flip; positive means better for
+  the player to move.
+  """
   @spec evaluate(Echecs.Game.t(), accumulator(), weights()) :: integer()
   def evaluate(game, accumulator, weights) do
     {us, them} =

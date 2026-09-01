@@ -2,7 +2,56 @@
 # credo:disable-for-this-file Credo.Check.Refactor.Nesting
 # credo:disable-for-this-file Credo.Check.Refactor.FunctionArity
 defmodule EchecsEngine.Search do
-  @moduledoc false
+  @moduledoc """
+  Fail-soft Principal Variation Search with iterative deepening.
+
+  Pure-Elixir search that delegates all chess rules to `Echecs` and all
+  scoring to `EchecsEngine.Eval`. Implements the same contract consumed by
+  `EchecsEngine` and `EchecsEngine.UCI`: `best_move/2` returns
+  `{:ok, move, info}` or `{:terminal, reason}` with cooperative cancellation.
+
+  ## Algorithm
+
+  * **Iterative deepening** from `1..max_depth` with per-depth reporting via
+    `:reporter` and time/node checks via `:stop_ref` / `:movetime`.
+  * **PVS / Negamax** with fail-soft windows, aspiration via `root_window/1`,
+    and mate-distance pruning.
+  * **Move ordering**: TT move → good captures (SEE ≥ 0, MVV) → quiet
+    (killer + history) → bad captures. `order_moves/5` is the single ordering
+    funnel and emits `:trace` events when enabled.
+  * **Selective pruning**: null-move (verified), reverse futility,
+    forward futility, SEE pruning, and LMR (late-move reduction) — each
+    gated by `disable_*` flags so `bench`/`trainer` can isolate them.
+  * **Leaf**: quiescence over tactical moves; `exact_depth` / `unordered`
+    modes bypass pruning for perft-style verification.
+  * **Transposition table**: fixed-slot ETS (`@tt_slots`) keyed by
+    `{zobrist, halfmove, rep_context}`; `probe_tt/7` / `store_tt/8` handle
+    age-based replacement and mate-score adjustment.
+  * **Repetition**: `repetition_context/1` folds history into a single
+    integer with `:erlang.phash2/2` so `Echecs.Game.draw?/1` plus TT keys
+    remain sound across recursive calls.
+
+  ## Cooperative stopping
+
+  Every recursive entry checks `stopped?/1`: node limit, deadline, and
+  `:atomics` `stop_ref`. `EchecsEngine.UCI` sets that atomics cell on `stop`
+  / `quit`, so a single `best_move/2` invocation can be interrupted without
+  killing the BEAM process.
+
+  ## Options
+
+  Public: `:depth`, `:nodes`, `:movetime`, `:reporter`, `:stop_ref`.
+  Internal/diagnostic: `:eval` (inject scoring), `:tt_slots`, `:trace`,
+  `:unordered`, `:exact_depth`, `:disable_lmr`, `:disable_null`,
+  `:disable_futility`, `:disable_see_pruning`, `:root_window`.
+
+  ## Example
+
+      iex> game = Echecs.new_game("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1")
+      iex> {:ok, move, info} = EchecsEngine.Search.best_move(game, depth: 2)
+      iex> is_integer(move) and info.depth == 2
+      true
+  """
 
   require Echecs.Move
   import Bitwise
@@ -36,6 +85,18 @@ defmodule EchecsEngine.Search do
     :root_window
   ]
 
+  @doc """
+  Finds the best packed move for `game`.
+
+  Thin wrapper around iterative deepening. Validates `opts`, resolves
+  `depth` / `nodes` / `movetime` via `limits/1`, then either returns
+  `{:terminal, reason}` for no-legal-move or draw positions, or searches
+  with `exact_best_move/3` when `exact_depth` is set, otherwise `iterative/3`.
+
+  The returned map contains `score`, `depth`, `seldepth`, `nodes`,
+  `time_ms`, `pv` (UCI strings), and TT stats. `move` itself is a packed
+  integer; callers like `EchecsEngine` translate it via `EchecsEngine.Move`.
+  """
   @spec best_move(Echecs.Game.t(), keyword()) ::
           {:ok, integer(), map()} | {:terminal, atom()} | {:error, term()}
   def best_move(game, opts \\ []) do

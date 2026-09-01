@@ -1,6 +1,26 @@
 defmodule Mix.Tasks.Engine.Bench do
-  @moduledoc false
+  @moduledoc """
+  Runs deterministic benchmarks or a paired fastchess match.
+
+  ## Usage
+
+      mix engine.bench
+      mix engine.bench jsonl PATH
+      mix engine.bench match --base-cmd CMD --base-args ARGS \\
+        --candidate-cmd CMD --candidate-args ARGS --book BOOK \\
+        [--rounds N --tc TC --concurrency N --elo0 F --elo1 F --dir DIR]
+
+  * `mix engine.bench` — `EchecsEngine.Bench.smoke/0` (depth 2, fast).
+  * `mix engine.bench jsonl PATH` — `EchecsEngine.Bench.run_jsonl!/2` over a
+    `fen`/`bestmove` JSONL fixture.
+  * `mix engine.bench match ...` — shells out to `fastchess` via
+    `EchecsEngine.Bench.run_fastchess!/1` and prints the parsed SPRT result.
+    Requires `fastchess` on `PATH` and an opening book (`.pgn` / `.epd`).
+    Quote each `--*-args` value as a single shell string; it is forwarded as
+    `args=` to fastchess.
+  """
   use Mix.Task
+
   @shortdoc "Runs deterministic benchmarks or a paired fastchess match"
 
   @switches [

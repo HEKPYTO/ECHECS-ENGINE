@@ -1,6 +1,29 @@
 # credo:disable-for-this-file Credo.Check.Refactor.CyclomaticComplexity
 defmodule EchecsEngine.Bench do
-  @moduledoc "Deterministic engine correctness and measurement helpers."
+  @moduledoc """
+  Deterministic correctness and measurement helpers.
+
+  Provides three locally reproducible measurements plus one externally
+  delegated strength gate:
+
+  * `signature/1` - runs the fixed two-position `@corpus` through
+    `EchecsEngine.analyze/2` and returns `nodes`, `nps`, `gc`, `memory`,
+    `tt` stats and PVs. `mix engine.bench` calls `smoke/0` (`depth: 2`)
+    as a fast sanity check; any `opts` (e.g. `depth: 4`) are forwarded.
+  * `run_jsonl!/2` - streams a `fen` / optional `bestmove` JSONL file and
+    reports `solved/total` plus per-position info. Used for fixture-based
+    regression.
+  * `parse_fastchess_report!/1` - parses the *final* fastchess
+    `Ptnml(0-2)` + `LLR` normalized-Elo SPRT block. No live score
+    scraping; only the completed report is trusted.
+  * `run_fastchess!/2` - shells out to an externally installed `fastchess`
+    binary with `base_cmd`/`candidate_cmd` and an opening book, then feeds
+    stdout to `parse_fastchess_report!/1`.
+
+  `signature/1` and `run_jsonl!/2` are the correctness baselines shipped
+  with the repo. Strength claims require `run_fastchess!/2` and an opening
+  book; the module never claims Stockfish parity from `signature` alone.
+  """
 
   @corpus [
     "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
@@ -9,6 +32,13 @@ defmodule EchecsEngine.Bench do
 
   @fastchess_report ~r/Ptnml\(0-2\):\s*\[\s*(?<b0>\d+)\s*,\s*(?<b1>\d+)\s*,\s*(?<b2>\d+)\s*,\s*(?<b3>\d+)\s*,\s*(?<b4>\d+)\s*\]\s*(?:(?!Ptnml\(0-2\)).)*?LLR:\s*(?<llr>[+-]?(?:\d+(?:\.\d*)?|\.\d+))\s*\(\s*[+-]?(?:\d+(?:\.\d*)?|\.\d+)%\s*\)\s*\(\s*(?<lower>[+-]?(?:\d+(?:\.\d*)?|\.\d+))\s*,\s*(?<upper>[+-]?(?:\d+(?:\.\d*)?|\.\d+))\s*\)\s*\[\s*(?<elo0>[+-]?(?:\d+(?:\.\d*)?|\.\d+))\s*,\s*(?<elo1>[+-]?(?:\d+(?:\.\d*)?|\.\d+))\s*\]/s
 
+  @doc """
+  Runs the fixed corpus through the engine and returns a measurement map.
+
+  Includes OTP version, corpus checksum, nodes/nps, GC delta, TT stats,
+  and per-position scores/PVs. `opts` are forwarded to `EchecsEngine.analyze/2`.
+  """
+  @spec signature(keyword()) :: map()
   def signature(opts \\ []) do
     memory_before = :erlang.memory(:total)
     gc_before = :erlang.statistics(:garbage_collection)
@@ -40,8 +70,22 @@ defmodule EchecsEngine.Bench do
     }
   end
 
+  @doc "Fast smoke signature at `depth: 2`."
+  @spec smoke() :: map()
   def smoke, do: signature(depth: 2)
 
+  @doc """
+  Streams a JSONL file of `%{"fen" => fen, "bestmove" => uci | nil}` rows.
+
+  Returns `%{total, solved, positions}` where `positions` holds each engine
+  info enriched with `:correct`. Raises `ArgumentError` on malformed rows
+  or engine errors. `opts` are forwarded to `EchecsEngine.analyze/2`.
+  """
+  @spec run_jsonl!(Path.t(), keyword()) :: %{
+          total: non_neg_integer(),
+          solved: non_neg_integer(),
+          positions: [map()]
+        }
   def run_jsonl!(path, opts \\ []) do
     File.stream!(path)
     |> Stream.with_index(1)

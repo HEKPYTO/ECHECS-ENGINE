@@ -1,7 +1,44 @@
 # credo:disable-for-this-file Credo.Check.Refactor.CyclomaticComplexity
 # credo:disable-for-this-file Credo.Check.Refactor.Nesting
 defmodule EchecsEngine.UCI do
-  @moduledoc false
+  @moduledoc """
+  Universal Chess Interface (UCI) loop for ECHECS-ENGINE.
+
+  Stateful line-protocol adapter between a GUI (or `fastchess`) and
+  `EchecsEngine.Search`. The loop is synchronous on stdin/stdout but
+  delegates search to `EchecsEngine.SearchSupervisor` so `stop` / `isready`
+  / `quit` remain responsive.
+
+  ## Protocol
+
+  Supported commands: `uci`, `isready`, `ucinewgame`, `position` (both
+  `startpos` and `fen` with trailing `moves`), `go` (with `depth`/`nodes`/
+  `movetime`/`wtime`/`btime`/`winc`/`binc`/`movestogo`/`infinite`), `stop`,
+  `quit`. Unknown tokens yield `info string unsupported command`.
+
+  On `go`, the loop spawns an `async_nolink` task that calls
+  `EchecsEngine.Search.best_move/2` with `stop_ref` (`:atomics`) and a
+  `reporter` that forwards `info` lines by `send/2`. `drain/1` polls the
+  mailbox on every input line and every 10 ms so `info` depth lines appear
+  outside the input handler.
+
+  Clock-based `go` without an explicit limit is converted to a `movetime`
+  allocation: `time / movestogo + 0.75 * increment`, reserving `time / 20`.
+
+  ## State
+
+  `%EchecsEngine.UCI{}` holds `game`, the running `task`/`id`/`stop_ref`,
+  `bestmove` fallback (first legal move), `emitted?`, and `quit?`. It is
+  exposed so tests can drive `handle_line/2` without I/O.
+
+  ## Example
+
+      iex> state = EchecsEngine.UCI.new()
+      iex> {state, out} = EchecsEngine.UCI.handle_line(state, "position startpos moves e2e4")
+      iex> {state, out} = EchecsEngine.UCI.handle_line(state, "go depth 1")
+      iex> is_struct(state, EchecsEngine.UCI)
+      true
+  """
 
   require Echecs.Move
 
@@ -17,8 +54,17 @@ defmodule EchecsEngine.UCI do
 
   @type t :: %__MODULE__{}
 
+  @doc "Returns a fresh UCI state with the standard start position."
+  @spec new() :: t()
   def new, do: %__MODULE__{game: Echecs.new_game()}
 
+  @doc """
+  Runs the blocking UCI loop on `stdin`/`stdout`.
+
+  Spawns a dedicated input reader so `stop`/`quit` remain responsive while
+  a search task runs under `EchecsEngine.SearchSupervisor`. Returns the
+  final state after `quit` or `:eof`.
+  """
   @spec run() :: t()
   def run do
     parent = self()
@@ -26,12 +72,27 @@ defmodule EchecsEngine.UCI do
     loop(new(), input_reader)
   end
 
+  @doc """
+  Handles a single UCI line against `state`.
+
+  Drains any pending `info`/`bestmove` messages first, then dispatches
+  `command/2`. Returns `{new_state, output_lines}` without performing I/O,
+  so it is the primary test entry point.
+  """
+  @spec handle_line(t(), String.t()) :: {t(), [String.t()]}
   def handle_line(state, line) do
     {state, pending} = drain(state)
     {state, output} = command(state, String.split(String.trim(line), ~r/\s+/, trim: true))
     {state, pending ++ output}
   end
 
+  @doc """
+  Drains all pending search messages for `state`.
+
+  Collects `{:uci_info, id, info}` → `info ... pv ...` and task completion
+  → `bestmove ...` without blocking.
+  """
+  @spec drain(t()) :: {t(), [String.t()]}
   def drain(%__MODULE__{} = state), do: receive_messages(state, [])
 
   defp read_input(parent) do

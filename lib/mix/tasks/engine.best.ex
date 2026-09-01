@@ -1,5 +1,16 @@
 defmodule Mix.Tasks.Engine.Best do
-  @moduledoc false
+  @moduledoc """
+  Prints the best UCI move for a FEN.
+
+  ## Usage
+
+      mix engine.best --depth 4 "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
+      mix engine.best --nodes 10000 "r1bqkbnr/pppp1ppp/2n5/4p3/4P3/8/PPPP1PPP/R1BQKBNR w KQkq - 0 1"
+      mix engine.best --movetime 100 "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
+
+  Exactly one of `--depth`, `--nodes`, or `--movetime` may be used. The
+  remainder of the command line is joined with spaces as the FEN string.
+  """
   use Mix.Task
 
   @shortdoc "Prints the best UCI move for a FEN"
