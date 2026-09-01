@@ -77,14 +77,15 @@ defmodule EchecsEngine.Bench do
   @doc """
   Streams a JSONL file of `%{"fen" => fen, "bestmove" => uci | nil}` rows.
 
-  Returns `%{total, solved, positions}` where `positions` holds each engine
-  info enriched with `:correct`. Raises `ArgumentError` on malformed rows
-  or engine errors. `opts` are forwarded to `EchecsEngine.analyze/2`.
+  Returns `%{total: total, solved: solved, positions: positions, accuracy: accuracy}` where `positions` holds each engine
+  info enriched with `:correct` and `accuracy` is `solved / total` (`0.0` when `total` is `0`).
+  Raises `ArgumentError` on malformed rows or engine errors. `opts` are forwarded to `EchecsEngine.analyze/2`.
   """
   @spec run_jsonl!(Path.t(), keyword()) :: %{
           total: non_neg_integer(),
           solved: non_neg_integer(),
-          positions: [map()]
+          positions: [map()],
+          accuracy: float()
         }
   def run_jsonl!(path, opts \\ []) do
     File.stream!(path)
