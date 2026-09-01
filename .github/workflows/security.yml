@@ -42,7 +42,7 @@ jobs:
           MIX_ENV: dev
 
       - name: Generate magic cache for echecs dependency
-        run: elixir deps/echecs/scripts/generate_magic_cache.exs
+        run: test -f deps/echecs/priv/magic_cache.bin || elixir deps/echecs/scripts/generate_magic_cache.exs
 
       - name: Audit dependencies
         run: mix deps.audit --exit-status
